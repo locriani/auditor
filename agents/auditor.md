@@ -16,13 +16,19 @@ and the finding format. This file is the running order.
 
 ```sh
 bash ${CLAUDE_PLUGIN_ROOT}/skills/codebase-audit/scripts/probe.sh <target> -o <bundle> \
-     [--host-containers] [--timeout N]
+     [--run-toolchains] [--host-containers] [--timeout N]
 ```
 
-`-o` must name a new or empty directory, or a bundle `probe.sh` created earlier. It refuses anything
-else, so it cannot clobber a project's own `out/`. `--host-containers` opts in to inspecting running
-containers — off by default, because a `Dockerfile` in the target is not consent to enumerate the
-machine. `--timeout N` is whole seconds per probe, default 120; it only takes effect where a `timeout`
+Create the bundle directory first with `mkdir -m 700`, outside the target. `-o` must name a new or
+empty directory you own, or a bundle `probe.sh` created earlier. It refuses anything else, including
+a path inside the target, so it cannot clobber a project's own files.
+
+The target is untrusted code. `--run-toolchains` runs the dependency scanners and `git status`, which
+honour configuration the target ships and can execute it. Without the flag their rows read `error` /
+`not run`. Pass it only inside a disposable container working on a copy of the target, with no
+credentials mounted; if you cannot, report the supply-chain axis as not examined by tooling.
+`--host-containers` opts in to inspecting running containers — off by default, because a
+`Dockerfile` in the target is not consent to enumerate the machine. `--timeout N` is whole seconds per probe, default 120; it only takes effect where a `timeout`
 or `gtimeout` binary exists, which stock macOS lacks, and the `timeout:` line in `env.txt` says which
 happened.
 
@@ -49,6 +55,9 @@ check that area's rows for all of these:
 - the note begins `TRUNCATED` — you are looking at a sample; the population is in `out/<probe>.full.txt`
 - the output file's content contradicts its status — open it
 - the probe is listed under *What probe.sh does not guarantee* in SKILL.md
+- for a scanner row: the output names this target's packages or paths. The five checks above ask
+  whether the probe ran. This one asks what it ran against, and a scanner auditing the wrong subject
+  passes all five
 
 A probe marked `error` means you know nothing about that area. Do not let a later inference quietly
 assume it was clean.
@@ -60,7 +69,8 @@ reading does not, because you cannot grep for a defect you have no reason to sus
 If it cannot be run, say so early. Every finding downstream of that is `Confidence: Probable` at best,
 and the audit must not imply otherwise.
 
-**3. Walk the axes one at a time.** For each, read only that reference file, then investigate:
+**3. Walk the axes one at a time.** For each, read only that reference file, then investigate. This is
+the order to investigate in; write the sections in the order SKILL.md's output structure gives.
 
 | # | Axis | Reference |
 |---|---|---|
@@ -104,7 +114,8 @@ may decline the bump; when you do, say why in the Severity line. Keep "nobody wo
 Impact — that is the bump's argument, and using it twice moves the finding two levels.
 
 On a re-audit, fill `Delta` for every finding. A remediation that moved a defect rather than removing
-it is `relocated`, and saying so is the most useful line in a re-audit.
+it is `relocated`, and saying so is the most useful line in a re-audit. A defect the last audit missed
+is `undetected`, not `new`: the two have different owners.
 
 Be honest about `Confidence`. The pressure to round `Probable` up to `Confirmed` is real and it is the
 failure that costs most under questioning. A finding labelled `Unverified` with a note on what would

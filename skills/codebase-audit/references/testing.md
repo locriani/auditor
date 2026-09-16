@@ -23,7 +23,8 @@ The failure shape is specific and common in forks: the README carries status bad
 
 ```sh
 # what CI exists here
-ls .github/workflows/ .gitlab-ci.yml .circleci/ Jenkinsfile 2>/dev/null
+find . -maxdepth 3 \( -path './.github/workflows/*' -o -name .gitlab-ci.yml -o -path './.circleci/*' -o -name Jenkinsfile \) -print
+# not `ls … 2>/dev/null`: on a directory it cannot list, ls reports every name absent
 # what the README claims — read the URLs, not the images
 grep -ohE '!\[[^]]*\]\(https://[^)]*(badge|shield|workflow|actions)[^)]*\)' *.md
 ```
@@ -70,6 +71,8 @@ A survivor is a Confirmed finding with its own reproduction, and it is the stron
 Where a mutation tool is already configured — Stryker, PIT, mutmut, Infection, cargo-mutants — read its last report. Do not install one to produce a score: a full run takes hours on a large codebase, and a mutation score has the same problem as a coverage number. Five hand mutations aimed at what matters answer the question; five thousand aimed at everything bury it.
 
 Two cautions. Run the unmutated suite first and record its result, so a pre-existing failure is not counted as a kill. And make sure the suite actually exercises the copy you mutated — a test runner pointed at an installed package, a cached build, or the original tree will report every mutation as survived.
+
+**Mutation measures the suite against its own stand-ins.** Where tests replace an external tool with a stub, a mock or a fixture, they pin the code to the author's belief about that tool, and every mutant is judged against that belief. Defects live where the belief is wrong: a scanner run with no arguments that audits the wrong subject passes a stub that echoes a report. For each wrapped external tool, one real run against a target whose correct answer is known beforehand is part of operating the system, and no mutation score substitutes for it.
 
 ## Coverage is a map of intent
 

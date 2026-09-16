@@ -16,13 +16,13 @@ This axis exists separately from Security because it is a different discipline w
 
 ## Does the build produce your code?
 
-Read every build definition for a network fetch. `probe.sh` isolates these in `dockerfile-fetches` precisely because they are the ones that matter:
+Read every build definition for a network fetch. `probe.sh` isolates these in `dockerfile-fetches` (for `Dockerfile*`, `*.Dockerfile` and `Containerfile*`) precisely because they are the ones that matter:
 
 ```
 git clone <upstream>    the build ignores the tree you audited
 ADD https://…           an unpinned artifact, whatever it is today
 curl … | sh             remote code, executed, unverified
-FROM image:latest       a different base image tomorrow
+FROM image:latest       a different base image tomorrow (so is FROM image, untagged)
 ```
 
 A Dockerfile that clones upstream inside a fork is the sharpest version: the build is green, the image runs, the application works, and none of your changes are in it. Nothing anywhere reports a problem, because from the build's point of view there is not one.
@@ -51,7 +51,9 @@ Where did this code come from, and can you prove it?
 
 ## Dependency posture
 
-`probe.sh` runs the ecosystem's own auditor where a manifest exists — `composer audit`, `npm audit`, `pip-audit`, `govulncheck`, `cargo audit` — each of which resolves against a live advisory database. Read the output rather than the exit code: several of these exit non-zero *because* they found something, which is a success of the tool and a finding for you. Most also exit with that same code when they could not audit at all — a missing lockfile, an unreachable advisory database. `probe.sh` checks `npm audit`'s output for that case and files it `error`; for the others an `ok` row can hold an error message, so open the file before citing it.
+With `--run-toolchains`, `probe.sh` runs the ecosystem's own auditor where a manifest exists — `composer audit`, `npm audit`, `pip-audit`, `govulncheck`, `cargo-audit`, `bundler-audit` — each of which resolves against a live advisory database. Without the flag those rows read `error` / `not run`, because every one of these tools reads configuration the target ships and several execute it; run them in a disposable container over a copy.
+
+Read the output rather than the exit code: several of these exit non-zero *because* they found something, which is a success of the tool and a finding for you. Most also exit with that same code when they could not audit at all — a missing lockfile, an unreachable registry. `probe.sh` requires `npm audit` and `pip-audit` output to contain a report and files it `error` otherwise; for the others an `ok` row can hold an error message, so open the file before citing it. Then confirm the report names this target's packages. `pip-audit` with no arguments audits the Python it is installed in, and a clean report about the wrong environment looks exactly like a clean report.
 
 Beyond CVEs, three things matter and none are in the audit output:
 

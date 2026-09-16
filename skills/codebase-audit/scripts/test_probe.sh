@@ -225,11 +225,15 @@ bash "$PROBE" "$TMP/r2" -o "$TMP/b-reuse" >/dev/null 2>&1
   || bad "a reused bundle does not retain the previous target's evidence" "no out/npm-manifest.txt" "$(head -c 60 "$TMP/b-reuse/out/npm-manifest.txt")"
 
 # 1.3.0 added .full.txt and .err files; reuse must clear those too.
-bash "$PROBE" "$TMP/many" -o "$TMP/b-reuse2" >/dev/null 2>&1
+mkdir -p "$TMP/many-dock"; cp "$TMP/many"/* "$TMP/many-dock/"; : > "$TMP/many-dock/Dockerfile"
+DOCKER_STUB_PSWARN=1 PATH="$STUB:$PATH" bash "$PROBE" "$TMP/many-dock" --host-containers -o "$TMP/b-reuse2" >/dev/null 2>&1
+[ -n "$(ls "$TMP/b-reuse2"/out/*.full.txt 2>/dev/null)" ] && [ -n "$(ls "$TMP/b-reuse2"/out/*.err 2>/dev/null)" ] \
+  && ok "fixture: first run wrote a .full.txt and an .err" \
+  || bad "fixture: first run wrote a .full.txt and an .err" "both" "$(ls "$TMP/b-reuse2/out" 2>/dev/null | tr '\n' ' ')"
 bash "$PROBE" "$TMP/plain" -o "$TMP/b-reuse2" >/dev/null 2>&1
-[ -e "$TMP/b-reuse2/manifest.tsv" ] && [ -z "$(ls "$TMP/b-reuse2"/out/*.full.txt 2>/dev/null)" ] \
-  && ok "a reused bundle does not retain the previous run's .full.txt" \
-  || bad "a reused bundle does not retain the previous run's .full.txt" none "$(ls "$TMP/b-reuse2"/out/*.full.txt 2>/dev/null)"
+[ -e "$TMP/b-reuse2/manifest.tsv" ] && [ -z "$(ls "$TMP/b-reuse2"/out/*.full.txt "$TMP/b-reuse2"/out/*.err 2>/dev/null)" ] \
+  && ok "a reused bundle does not retain the previous run's .full.txt or .err" \
+  || bad "a reused bundle does not retain the previous run's .full.txt or .err" none "$(ls "$TMP/b-reuse2"/out/*.full.txt "$TMP/b-reuse2"/out/*.err 2>/dev/null | tr '\n' ' ')"
 
 # -o must never clear a directory probe.sh did not create. v1.2.0 ran rm -rf on
 # any out/ it found.
@@ -256,8 +260,8 @@ case "$(ls -ld "$TMP/openbundle")" in
   *) bad "an existing -o directory is made private" drwx------ "$(ls -ld "$TMP/openbundle")" ;;
 esac
 
-# --timeout is interpolated into eval; anything but digits must be rejected
-# before a single probe runs.
+# v1.2.0 interpolated --timeout into eval; anything but digits must still be
+# rejected before a single probe runs.
 PWN="$TMP/pwned"
 bash "$PROBE" "$TMP/plain" -o "$TMP/b-inj" --timeout "1; touch $PWN" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 2 ] && [ ! -e "$PWN" ] && [ ! -e "$TMP/b-inj" ] \
@@ -373,8 +377,8 @@ else
   skipped "unreadable-target tests — root reads everything"
 fi
 
-# Checkers run through xargs report findings as a nonzero exit, and BSD xargs
-# passes that on as 1 where GNU uses 123. Both must read as results.
+# Checkers report findings as a nonzero exit. v1.3.0 ran them through xargs,
+# which BSD passes on as 1 where GNU uses 123. Both must read as results.
 mkdir -p "$TMP/checkers"; printf 'FROM alpine:3.19\n' > "$TMP/checkers/Dockerfile"; printf 'if then\n' > "$TMP/checkers/bad.sh"
 M=$(run "$TMP/checkers")
 [ "$(status_of "$M" dockerfile-fetches)" = "empty" ] \

@@ -1,7 +1,7 @@
 # Standards Map
 
 Identifiers for tagging findings. Offline and deliberately compact — this file exists so a
-finding can carry `Refs: A05:2021, CWE-798` without a lookup, not to teach the standards.
+finding can carry `Refs: A02:2025, CWE-798` without a lookup, not to teach the standards.
 
 **Tag only where a mapping is real.** A forced tag is worse than no tag: it implies a rigour
 the finding does not have, and a reader who checks will find the mismatch. Many legitimate
@@ -9,26 +9,28 @@ findings — squashed history, a sparse high-stakes field, an unmeasured amplifi
 map to nothing here. Omit the `Refs` line for those.
 
 ## Contents
-- OWASP Top 10 (2021)
+- OWASP Top 10 (2025), with the 2021 IDs it replaces
 - OWASP ASVS categories
-- CWE Top 25 — most frequently exploited
+- CWE Top 25 — most dangerous software weaknesses
 - CWE identifiers for audit findings with no Top-25 entry
 - Where live vulnerability data comes from
 
-## OWASP Top 10 (2021)
+## OWASP Top 10 (2025)
 
-| ID | Name | Typical audit finding |
-|---|---|---|
-| A01:2021 | Broken Access Control | UI-layer-only enforcement; superuser short-circuit; unconfigured-means-open |
-| A02:2021 | Cryptographic Failures | encoding mistaken for encryption; plaintext in transit between internal hops |
-| A03:2021 | Injection | concatenated SQL; unparameterised queries |
-| A04:2021 | Insecure Design | no way to distinguish denial from absence; retention that cannot satisfy both requirements |
-| A05:2021 | Security Misconfiguration | shipped default credentials; debug services published to the host |
-| A06:2021 | Vulnerable and Outdated Components | anything the ecosystem auditor reports |
-| A07:2021 | Identification and Authentication Failures | weak password hashing; session fixation; no timeout |
-| A08:2021 | Software and Data Integrity Failures | build fetches unpinned remote source; no artifact identity assertion |
-| A09:2021 | Security Logging and Monitoring Failures | reads not logged; no absence alerting; tamper-editable audit trail |
-| A10:2021 | Server-Side Request Forgery | user-controlled URL fetched server-side |
+The 2025 edition replaces 2021. Tag new findings with 2025 IDs. The last column maps a 2021 ID found in an older report.
+
+| ID | Name | Typical audit finding | 2021 |
+|---|---|---|---|
+| A01:2025 | Broken Access Control | UI-layer-only enforcement; superuser short-circuit; unconfigured-means-open; user-controlled URL fetched server-side (SSRF, CWE-918) | A01, A10 |
+| A02:2025 | Security Misconfiguration | shipped default credentials; debug services published to the host | A05 |
+| A03:2025 | Software Supply Chain Failures | build fetches unpinned remote source; no artifact identity assertion; anything the ecosystem auditor reports; tooling that executes target-supplied config | A06, part of A08 |
+| A04:2025 | Cryptographic Failures | encoding mistaken for encryption; plaintext in transit between internal hops | A02 |
+| A05:2025 | Injection | concatenated SQL; unparameterised queries | A03 |
+| A06:2025 | Insecure Design | no way to distinguish denial from absence; retention that cannot satisfy both requirements | A04 |
+| A07:2025 | Authentication Failures | weak password hashing; session fixation; no timeout | A07 |
+| A08:2025 | Software or Data Integrity Failures | unsigned updates; deserialising untrusted data; evidence a local account can rewrite | A08 |
+| A09:2025 | Security Logging and Alerting Failures | reads not logged; no absence alerting; tamper-editable audit trail | A09 |
+| A10:2025 | Mishandling of Exceptional Conditions | swallowed exceptions; success codes on failed work; fail-open error paths | — |
 
 ## OWASP ASVS categories
 
@@ -51,7 +53,7 @@ Cite the category when a finding is about a control area rather than a specific 
 | V13 | API and Web Service |
 | V14 | Configuration |
 
-## CWE Top 25 — most frequently exploited
+## CWE Top 25 — most dangerous software weaknesses
 
 | CWE | Name |
 |---|---|
@@ -84,7 +86,7 @@ Cite the category when a finding is about a control area rather than a specific 
 ## CWE identifiers for audit findings with no Top-25 entry
 
 The audit findings that recur most in this method are mostly *not* in the Top 25, because the
-Top 25 ranks exploitation frequency and an audit ranks inherited risk. These are the ones worth
+Top 25 ranks weaknesses by how often they appear in published CVEs, weighted by severity, and an audit ranks inherited risk. These are the ones worth
 knowing:
 
 | CWE | Name | Why it comes up here |

@@ -6,7 +6,7 @@
 # and writes an evidence bundle plus manifest.tsv. Prints the bundle path.
 #
 # The manifest keeps five outcomes distinct, which is the whole point:
-#   ok      ran, found something          empty  ran clean, found nothing
+#   ok      ran, found something          empty  ran, output nothing
 #   n/a     does not apply to this stack  error  could not run — you know NOTHING here
 #   output  exited nonzero AND produced output — READ IT. Vulnerability scanners
 #           signal findings this way; discarding it throws away the best evidence.
@@ -126,9 +126,10 @@ printf 'created by codebase-audit probe.sh; safe for probe.sh to clear on reuse\
 MANIFEST="$BUNDLE/manifest.tsv"
 printf 'probe\taxis\tstatus\texit\tbytes\tlines\tstderr\tfile\tnote\n' > "$MANIFEST"
 
-# A timeout guard, where one is available. Two probes talk to a daemon and one
-# to the network; without this a hung daemon hangs the whole collection. Stock
-# macOS has neither binary, and env.txt records which case applied.
+# A timeout guard, where one is available. Two probes talk to a daemon and every
+# scanner under --run-toolchains to the network; without this a hung daemon or
+# registry hangs the whole collection. Stock macOS has neither binary, and env.txt
+# records which case applied.
 TIMEOUT_BIN=""
 if [ "$PTIMEOUT" != "0" ]; then
   if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
@@ -140,8 +141,8 @@ TIMEOUT_PREFIX=""; [ -z "$TIMEOUT_BIN" ] || TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEO
 # probe <name> <axis> <cmd> [ok_exits] [cap] [valid_if] [empty_note]
 #
 # ok_exits   space-separated exit codes that mean "ran correctly" (default "0").
-#            grep exits 1 for "no match" and xargs 123 when a checker it ran
-#            reported something — RESULTS, not failures.
+#            grep exits 1 for "no match" and scanners exit nonzero when they
+#            find something — RESULTS, not failures.
 # cap        lines kept in out/<name>.txt. More than that is flagged TRUNCATED and
 #            the whole output is kept in out/<name>.full.txt. Commands must not
 #            cap themselves with `| head`: that pins the pipeline's exit status
@@ -155,8 +156,10 @@ TIMEOUT_PREFIX=""; [ -z "$TIMEOUT_BIN" ] || TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEO
 #            contains, not on what one failure looked like.
 # empty_note appended to an `empty` row's note, where "ran clean" would overclaim.
 #
-# Each command runs in its own bash with pipefail ON, so any stage failing is the
-# probe failing. (pipefail was off in v1.2.x to stop `head` SIGPIPE reading as
+# Each command runs in its own bash with pipefail ON, so any producing stage
+# failing is the probe failing. A trailing `grep -v` filter must be written as
+# `{ grep -v … || [ $? -eq 1 ]; }`, or its "nothing survived" exit replaces the
+# producer's. (pipefail was off in v1.2.x to stop `head` SIGPIPE reading as
 # exit 141; with the cap moved here there is no `head` to cause it.) The command
 # is passed to that bash as one argument, never eval'd, and the timeout binary
 # wraps the whole of it — v1.2.0's `timeout 120 for c in …` was a syntax error.
@@ -445,9 +448,9 @@ fi
 #
 # Checkers run inside `find -exec sh -c`, which maps "the checker found something"
 # (php -l 255, shellcheck 1, bash -n 2) to success and anything else to failure.
-# xargs cannot do that: BSD xargs reports every nonzero child as 1, the same exit
-# as find failing to read a directory, so a syntax error and an unreadable tree
-# were indistinguishable. Exit 1 from these probes now means only the latter.
+# v1.3.0's xargs could not: BSD xargs reports every nonzero child as 1, the same
+# exit as find failing to read a directory. Exit 1 from these probes now means
+# only the latter.
 if has shellcheck; then
   probe shell-lint code-quality \
     "find . $PRUNE -name '*.sh' -exec sh -c 'shellcheck -f gcc \"\$@\"; [ \$? -le 1 ]' sh {} +" 0 60

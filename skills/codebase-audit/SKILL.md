@@ -93,9 +93,11 @@ Standards identifiers for tagging findings: [references/standards-map.md](refere
 ## Collect the evidence first
 
 ```sh
-bash ${CLAUDE_PLUGIN_ROOT}/skills/codebase-audit/scripts/probe.sh <target-dir> [-o <bundle>] \
-     [--host-containers] [--timeout N]
+bash ${CLAUDE_PLUGIN_ROOT}/skills/codebase-audit/scripts/probe.sh <target-dir> -o <bundle> \
+     [--run-toolchains] [--host-containers] [--timeout N]
 ```
+
+**Collecting evidence is not a safe step.** The target is code someone else wrote, and toolchains honour configuration it ships: a cargo alias, a composer plugin, a Gemfile, a `go.mod` toolchain line, a pyproject build backend, a git clean filter. v1.3.0 ran target code through two of those with default flags. Since 1.4.0 the scanners that can do this run only with `--run-toolchains`. Pass that flag only inside a disposable container working on a copy of the target, with no credentials or SSH agent mounted. Give `-o` a directory you created with `mkdir -m 700`, outside the target.
 
 Runs once, detects the stack rather than assuming it, and writes an evidence bundle plus `manifest.tsv`. Run it **before** the axis walk so nine axes do not re-derive the same twelve facts.
 
@@ -103,7 +105,7 @@ Read `manifest.tsv` first. Five outcomes, and the difference between them is wha
 
 ```
 ok       ran, found something        → read the output file; do not trust that it succeeded
-empty    ran clean, found nothing    → a lead toward "no X found" — run the checks below first
+empty    ran, output nothing         → a lead toward "no X found" — run the checks below first
 n/a      does not apply to this stack→ expected, not a gap
 error    could not run               → you know NOTHING here; say so explicitly
 output   exited nonzero AND produced output → READ IT
@@ -113,9 +115,16 @@ output   exited nonzero AND produced output → READ IT
 
 `empty` and `error` are meant never to be the same value. Collapsing them is Empty-Result Ambiguity, the first pattern in the list above, and v1.0.0 of this script committed it. The status column is still the collector's opinion; the output file is the fact. What the probe cannot promise is listed in [What probe.sh does not guarantee](#what-probesh-does-not-guarantee) — read it once before relying on any `empty`.
 
-Two things the probe deliberately will not do without being asked: inspect host containers (`--host-containers`, because a `Dockerfile` in the target is not consent to enumerate the machine) and run unbounded (`--timeout N`).
+Three things the probe will not do without being asked: run dependency scanners and `git status` (`--run-toolchains`; without it their rows are `error` with the note `not run`), inspect host containers (`--host-containers`, because a `Dockerfile` in the target is not consent to enumerate the machine), and run unbounded (`--timeout N`, where a `timeout` binary exists).
 
-**Check four things before writing a negative conclusion:** any `error` rows in that area; any `stderr = yes` rows; any `TRUNCATED` note, whose complete output is in `out/<probe>.full.txt`; and the `timeout:` line in `env.txt`, which says `NONE ENFORCED` when no probe was bounded. Each one narrows what the bundle actually covers.
+**Check six things before writing a negative conclusion.** Each narrows what the bundle covers. The first five ask whether the probe ran; the sixth asks what it ran against, and both of v1.3.0's Critical defects passed the first five.
+
+1. Any `error` row in that area, including `not run`.
+2. Any `stderr = yes` row.
+3. Any note beginning `TRUNCATED`; the population is in `out/<probe>.full.txt`.
+4. The `timeout:` and `toolchains:` lines in `env.txt`.
+5. The probe's entry under [What probe.sh does not guarantee](#what-probesh-does-not-guarantee).
+6. For a scanner row, that the output names this target's packages or paths. A clean report about some other environment is still a clean report.
 
 The bundle is evidence, not findings — and it holds raw config and possible secrets, so delete it when the audit is written.
 
@@ -132,6 +141,15 @@ Grade impact and likelihood, then read the cell. State the cell in the finding s
 
 *Default* = true out of the box, no configuration required. *Common* = true in ordinary use. *Conditional* = needs a specific combination to fire.
 
+Judge Likelihood over the targets where the defective path applies, and say so if you choose otherwise. A dependency scanner that audits the wrong subject is Default among Python targets and Conditional across all targets, and that choice alone moves the grade a level.
+
+Impact, operationally:
+
+- **Severe** — data loss or corruption, exposure of credentials, PHI or PII across a trust boundary, code execution, or an authorization bypass.
+- **Major** — a whole feature or evidence area is wrong with no workaround, or a subset of data is corrupted.
+- **Moderate** — a result is wrong or missing and a named workaround recovers it at real cost in time.
+- **Minor** — a result is inconvenient, misleading only to a careless reader, or cosmetic.
+
 **Then apply the detectability bump.** A finding graded `Detectability: SILENT` moves up one level.
 
 ```
@@ -143,6 +161,8 @@ detectability(f) = SILENT  →  severity(f) := next level up; Critical stays Cri
 The reasoning: a loud defect is bounded by the time it takes someone to notice. A silent one is not bounded at all — it accrues damage until an unrelated investigation happens to surface it, and the cost of that gap has no ceiling. Two defects with identical impact are not equally dangerous when one of them announces itself.
 
 **The bump is a default, not an assignment.** Decline it when something outside the defect bounds the silence — a warning printed on every run, a neighbouring output that contradicts the wrong one at a glance, a check the reader cannot avoid making. Write the reason into the Severity line: `High (Moderate × Default = High; SILENT bump declined — <why>)`. A declined bump with a stated reason is a judgment the reader can check. A skipped bump with no reason is an error.
+
+A warning or disclaimer bounds the silence only for the limits it names correctly. A note that says "not evidence of X" in the same sentence as a false claim about coverage does not earn the decline.
 
 **Do not count silence twice.** Grade Impact as though the defect were noticed the moment it fired. "Nobody would notice, so it spreads" is the detectability argument; putting it in Impact as well moves the finding up two levels for one property. Test: if the Impact sentence would change when the defect became loud, it holds detectability reasoning that belongs in the bump.
 
@@ -161,10 +181,10 @@ The reasoning: a loud defect is bounded by the time it takes someone to notice. 
 - **Class** — one of the nine silent-failure patterns, or "loud".
 - **Refs** — CWE / OWASP / CVE where one applies; omit the line where none does.
 - **Downstream** — what this forbids or forces in what gets built next.
-- **Delta** — re-audits only: new | unchanged | relocated | regressed, naming the prior finding.
+- **Delta** — re-audits only: new | undetected | unchanged | relocated | widened | regressed, naming the prior finding.
 ```
 
-`Delta` exists because severity cannot express a fix that moves a defect instead of removing it. **new** — not present before. **unchanged** — same defect, same place. **relocated** — the old path is fixed and the same defect now appears through another one; graded afresh it can read as "no progress" when the population it affects has changed. **regressed** — introduced by a remediation. Findings that were fixed outright go in the appendix's remediation table, not in a section.
+`Delta` exists because severity cannot express a fix that moves a defect instead of removing it. **new** — not present at the prior audited version. **undetected** — present at the prior version and not reported by that audit; the owner is the audit, not the release. **unchanged** — same defect, same place. **relocated** — the old path is fixed and the same defect now appears through another one; graded afresh it can read as "no progress" when the population it affects has changed. **widened** — present before, and a remediation increased its reach. **regressed** — introduced by a remediation. Findings that were fixed outright go in the appendix's remediation table, not in a section.
 
 Worked example:
 
@@ -200,24 +220,41 @@ Worked example:
 ## Appendix           method, tooling, standards mapping, what was NOT audited
 ```
 
-Order is deliberate where a brief demands five specific axes: put those five first so compliance is unmistakable, then the rest. Where no brief constrains you, order by severity of what you found.
+Order is deliberate where a brief demands five specific axes: put those five first so compliance is unmistakable, then the rest. Where no brief constrains you, order sections by the severity of what you found. The auditor's running order in `agents/auditor.md` is the order to investigate in, not the order to write in.
 
 **The summary is written last and is a judgment, not a digest.** Not "section 1 found three things, section 2 found five." It answers: what is the single most important thing here, what would someone have missed by only reading the code, and what does this change about the plan. A summary that could be regenerated by concatenating the section headings has not been written yet.
 
 ## What probe.sh does not guarantee
 
-Known limits at this version. Each is a place where a status can be wrong without the bundle saying so.
+Known limits at 1.4.0. Each is a place where a status can be wrong without the bundle saying so.
 
-- **Only `npm audit` has its output checked for a scanner that did not run.** `composer audit`, `pip-audit`, `govulncheck`, `cargo audit` and `bundle audit` accept their "found something" exit, so if they fail with that exit and print an error, the row reads `ok`. Open the file.
-- **`secret-scan` is a regex over a list of file types**, named in `env.txt`. It matches `key = literal` on one line. Files outside the list, multi-line secrets, and encoded values are not read. It is a lead, not a secret scanner.
-- **`test-file-count` knows eight naming conventions.** It misses `.bats`, `*Test.java`, `*Tests.cs`, `*.spec.ts`, `*_test.py` and others, and it reports `0` as `ok`. Never write "no tests" from it.
-- **A syntax checker that fails on one file** files `output`. For `php-syntax` and `shell-syntax-only` its message sits in the output file beside real findings, not in `stderr`; `shell-lint` keeps shellcheck's own errors in `stderr`.
+**Execution.**
+
+- **`--run-toolchains` does not make scanners safe.** It closes the routes that have a command-line off switch: cargo aliases (cargo-audit is called directly), composer plugins and scripts, an `.npmrc` registry, a `go.mod` toolchain switch (`GOTOOLCHAIN=local`), and the Gemfile (bundler-audit is called directly). It does not close a pyproject build backend (`pip-audit .` builds the project), composer or npm reading other project config, or `git status` running a clean filter declared in `.git/info/attributes`. Scanners also use the network and write to the home directory (`~/.npm/_logs`, advisory caches).
+- **Default git probes** override `core.fsmonitor` and `log.showSignature`. Other repository config that runs a command on a read-only git operation is not known to exist, and was not searched for exhaustively.
+
+**Content checks.**
+
+- **`npm-audit` and `pip-audit` rows must contain a report** (`auditReportVersion`/`vulnerabilities`, or `dependencies`). `composer audit`, `govulncheck`, `cargo-audit` and `bundler-audit` accept their "found something" exit without a content check, so a failure with that exit and an error message reads `ok`. Open the file.
+- **`secret-scan` is a regex over a list of file types** named in `env.txt`. It finds one-line assignments (`key = literal`, `"key": "literal"`, `'key' => 'literal'`, `define('KEY', 'literal')`) and `scheme://user:pass@` URLs, case-insensitively, with literals of 6+ characters. It misses multi-line and encoded secrets, keys not named password/passwd/secret/token/api key/access key/private key, and files outside the list. It reports a key assigned an identifier (`"first_token_latency_ms": first_token_latency_ms`). It skips `.git`, `node_modules`, `vendor`, minified files, maps and lockfiles. It is a lead, not a secret scanner.
+- **`dockerfile-fetches`** flags `FROM scratch` and `FROM <earlier-stage>` as untagged images; an extended regex cannot tell a stage name from an image name.
+- **`test-file-count` knows eight naming conventions.** It misses `.bats`, `*Test.java`, `*Tests.cs`, `*.spec.ts`, `*_test.py` and others, counts `latest.php` as a test, and reports `0` as `ok`. Never write "no tests" from it.
+- **Surface probes are keyword greps.** `route-tables`, `health-endpoints`, `log-surface`, `telemetry` and `swallowed-exceptions` point at files to read; they are not maps of the system. Their path filters drop first-party files whose path contains `test`, `spec` or `vendor`.
+- **`db-clients`** checks six client binaries by name inside containers that accept `docker exec`.
+
+**Statuses.**
+
+- **A syntax checker that fails on one file** files `output`. For `php-syntax` and `shell-syntax-only` its message sits in the output file beside real findings. A shellcheck SC1xxx parse error means that file was not linted past that point, and it files `ok`.
 - **A grep that could not read part of the tree but matched elsewhere files `output`.** That is correct, and it reads like a finding. Check `stderr`.
-- **Timeouts** are enforced only where `timeout` or `gtimeout` exists. On stock macOS nothing is bounded. The test suite uses a stand-in; real GNU `timeout` was checked by hand, not by the suite.
-- **`repo-size` is `du` without pruning**, so it includes `.git` and vendored trees. **`largest-files`** splits a filename containing a newline across two lines.
-- **Pruning is by directory name at any depth** — `.git`, `node_modules`, `vendor`. First-party code in a directory named `vendor` is not counted.
-- **Surface probes are keyword greps.** `route-tables`, `health-endpoints`, `log-surface` and `telemetry` point at files to read; they are not maps of the system.
-- **`php-syntax` and `shell-lint` are pinned by the suite only against stand-ins** that follow php's and shellcheck's exit conventions. The real tools were checked by hand at 1.3.0 — php 8.3, shellcheck 0.10.0 and GNU coreutils 9.7 in a Debian container — and matched, but nothing re-checks them when either tool changes its exit codes.
+- **Timeouts** are enforced only where `timeout` or `gtimeout` exists. On stock macOS nothing is bounded.
+
+**Shape.**
+
+- **Pruning is by directory name at any depth**: `.git node_modules vendor dist build coverage .venv venv __pycache__ third_party bower_components target jquery`. First-party code in a directory with one of those names is not counted or searched. **`repo-size` is `du` without pruning.** `largest-files` and `lang-census` split a filename containing a newline.
+
+**Verification.**
+
+- **The suite pins behaviour against stand-ins** for every scanner, php, shellcheck, docker and `timeout`. Real php 8.3 (at 1.3.0), and shellcheck 0.10.0, GNU timeout, pip-audit 2.10.1, cargo and git (at 1.4.0), were run by hand in Debian; npm's unreachable-registry output shapes come from real runs in the v1.3.0 self-audit. Nothing re-checks them when those tools change. `dev/run_mutations.sh` measures which behaviours the suite pins.
 
 ## Red flags — the inference that fails
 
