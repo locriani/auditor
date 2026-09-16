@@ -23,16 +23,27 @@
 # Written for bash 3.2 (macOS system bash) — no associative arrays, no mapfile.
 
 set -eu
+# The bundle holds every secret-scan hit. v1.3.0 wrote it at the caller's umask,
+# so on a shared Linux /tmp any local account could read it.
+umask 077
+# With CDPATH exported, `cd dir` prints the directory it chose and may choose a
+# same-named directory elsewhere. v1.3.0 captured that output as the target.
+unset CDPATH
 
-TARGET=""; BUNDLE=""; HOST_CONTAINERS=0; PTIMEOUT="120"   # seconds per probe; --timeout 0 disables
+TARGET=""; BUNDLE=""; HOST_CONTAINERS=0; RUN_TOOLCHAINS=0; PTIMEOUT="120"   # seconds per probe; --timeout 0 disables
 
 # The synopsis lives here, not in the header. v1.0.0–1.2.x printed it with
 # `sed -n '3,6p' "$0"`, which went wrong the first time the header moved.
 usage() {
   cat <<'USAGE'
-probe.sh <target-dir> [-o <bundle-dir>] [--host-containers] [--timeout N]
+probe.sh <target-dir> [-o <bundle-dir>] [--run-toolchains] [--host-containers] [--timeout N]
 
-  -o <dir>            new or empty directory, or a bundle probe.sh created before
+  -o <dir>            new or empty directory you own, outside the target, or a
+                      bundle probe.sh created before
+  --run-toolchains    also run dependency scanners (composer, npm, pip-audit,
+                      govulncheck, cargo-audit, bundler-audit). They honour config
+                      the target ships and can run its code: use only inside a
+                      disposable container over a copy (off by default)
   --host-containers   also inspect running containers on this host (off by default)
   --timeout N         whole seconds per probe, default 120, 0 disables; needs a
                       timeout or gtimeout binary, and env.txt says whether one ran
@@ -44,6 +55,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -o) [ $# -ge 2 ] || usage; BUNDLE="$2"; shift 2 ;;
     --host-containers) HOST_CONTAINERS=1; shift ;;
+    --run-toolchains) RUN_TOOLCHAINS=1; shift ;;
     --timeout) [ $# -ge 2 ] || usage; PTIMEOUT="$2"; shift 2 ;;
     -h|--help) usage ;;
     --) shift ;;
@@ -60,11 +72,26 @@ done
 case "$PTIMEOUT" in
   ''|*[!0-9]*) echo "invalid --timeout: '$PTIMEOUT' (whole seconds, or 0 to disable)" >&2; exit 2 ;;
 esac
+# `00` compared unequal to `0` and was recorded as enforced, though timeout(1)
+# treats it as disabled; a 20-digit value was passed through to it unchecked.
+PTIMEOUT=$(printf '%s' "$PTIMEOUT" | sed 's/^0*//'); PTIMEOUT="${PTIMEOUT:-0}"
+[ "${#PTIMEOUT}" -le 6 ] || { echo "invalid --timeout: more than 999999 seconds" >&2; exit 2; }
 [ -d "$TARGET" ] || { echo "not a directory: $TARGET" >&2; exit 2; }
-TARGET=$(cd "$TARGET" && pwd)
+TARGET=$(cd -P -- "$TARGET" >/dev/null && pwd -P)
+
+# resolve_path <path> — absolute, symlinks resolved through the deepest ancestor
+# that exists. The remainder does not exist yet, so it cannot be a symlink.
+resolve_path() {
+  _p="$1"; _rest=""
+  case "$_p" in /*) ;; *) _p="$PWD/$_p" ;; esac
+  while [ ! -d "$_p" ]; do _rest="/$(basename "$_p")$_rest"; _p=$(dirname "$_p"); done
+  printf '%s%s\n' "$(cd -P -- "$_p" >/dev/null && pwd -P)" "$_rest"
+}
 
 if [ -z "$BUNDLE" ]; then
-  BUNDLE="${TMPDIR:-/tmp}/codebase-audit-$(basename "$TARGET")-$(date +%Y%m%d-%H%M%S)"
+  # mktemp, not a name derived from the clock: v1.3.0's name was predictable to
+  # the second, and a directory another account created there was adopted.
+  BUNDLE=$(mktemp -d "${TMPDIR:-/tmp}/codebase-audit-$(basename "$TARGET")-$(date +%Y%m%d-%H%M%S).XXXXXX")
 fi
 # A reused bundle must not mix runs: stale evidence from a previous target reads
 # as current fact and nothing in the manifest would say otherwise. But only a
@@ -74,6 +101,15 @@ fi
 MARKER=".codebase-audit-bundle"
 if [ -e "$BUNDLE" ] && [ ! -d "$BUNDLE" ]; then
   echo "refusing: bundle path exists and is not a directory: $BUNDLE" >&2; exit 2
+fi
+# A bundle inside the target is walked by the probes while it is being written,
+# and writing it modifies the tree under audit.
+case "$(resolve_path "$BUNDLE")/" in
+  "$TARGET"/*) echo "refusing: bundle $BUNDLE is inside the target $TARGET. Nothing was modified." >&2; exit 2 ;;
+esac
+# Another account's directory can be read, swapped or rewritten by that account.
+if [ -d "$BUNDLE" ] && [ ! -O "$BUNDLE" ]; then
+  echo "refusing: $BUNDLE is owned by another account. Nothing was modified." >&2; exit 2
 fi
 if [ -d "$BUNDLE" ] && [ -n "$(ls -A "$BUNDLE" 2>/dev/null)" ]; then
   if [ ! -f "$BUNDLE/$MARKER" ]; then
@@ -85,6 +121,7 @@ if [ -d "$BUNDLE" ] && [ -n "$(ls -A "$BUNDLE" 2>/dev/null)" ]; then
   rm -rf "$BUNDLE/out"
 fi
 mkdir -p "$BUNDLE/out"
+chmod 700 "$BUNDLE"
 printf 'created by codebase-audit probe.sh; safe for probe.sh to clear on reuse\n' > "$BUNDLE/$MARKER"
 MANIFEST="$BUNDLE/manifest.tsv"
 printf 'probe\taxis\tstatus\texit\tbytes\tlines\tstderr\tfile\tnote\n' > "$MANIFEST"
@@ -100,7 +137,7 @@ if [ "$PTIMEOUT" != "0" ]; then
 fi
 TIMEOUT_PREFIX=""; [ -z "$TIMEOUT_BIN" ] || TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEOUT"
 
-# probe <name> <axis> <cmd> [ok_exits] [cap] [failed_if] [empty_note]
+# probe <name> <axis> <cmd> [ok_exits] [cap] [valid_if] [empty_note]
 #
 # ok_exits   space-separated exit codes that mean "ran correctly" (default "0").
 #            grep exits 1 for "no match" and xargs 123 when a checker it ran
@@ -110,11 +147,13 @@ TIMEOUT_PREFIX=""; [ -z "$TIMEOUT_BIN" ] || TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEO
 #            cap themselves with `| head`: that pins the pipeline's exit status
 #            to head's, which is how v1.2.0's `exit` column came to report 0 for
 #            24 of 39 probes whatever the producer did.
-# failed_if  an extended regex that, found in the output, means the tool reported
-#            it could not run. For tools whose "found something" exit is also
-#            their "could not start" exit, only the content can separate the two.
-#            v1.2.0 filed `npm audit` failing with ENOLOCK as `ok`.
-# empty_note what an `empty` row says, where "ran clean" would overclaim.
+# valid_if   an extended regex the output must contain to count as a report. For
+#            tools whose "found something" exit is also their "could not run"
+#            exit, only the content can separate the two. v1.2.0 filed npm's
+#            ENOLOCK as `ok`; v1.3.0 matched ENOLOCK's shape and still filed an
+#            unreachable registry `ok`, so the check is now on what a report
+#            contains, not on what one failure looked like.
+# empty_note appended to an `empty` row's note, where "ran clean" would overclaim.
 #
 # Each command runs in its own bash with pipefail ON, so any stage failing is the
 # probe failing. (pipefail was off in v1.2.x to stop `head` SIGPIPE reading as
@@ -122,7 +161,7 @@ TIMEOUT_PREFIX=""; [ -z "$TIMEOUT_BIN" ] || TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEO
 # is passed to that bash as one argument, never eval'd, and the timeout binary
 # wraps the whole of it — v1.2.0's `timeout 120 for c in …` was a syntax error.
 probe() {
-  _name="$1"; _axis="$2"; _cmd="$3"; _ok="${4:-0}"; _cap="${5:-}"; _failpat="${6:-}"; _emptynote="${7:-}"
+  _name="$1"; _axis="$2"; _cmd="$3"; _ok="${4:-0}"; _cap="${5:-}"; _validpat="${6:-}"; _emptynote="${7:-}"
   _out="$BUNDLE/out/$_name.txt"; _full="$BUNDLE/out/$_name.full.txt"; _err="$BUNDLE/out/$_name.err"; _rc=0
   # shellcheck disable=SC2086  # TIMEOUT_PREFIX is a binary name and validated digits
   ( cd "$TARGET" && exec $TIMEOUT_PREFIX "$BASH" -o pipefail -c "$_cmd" ) >"$_full" 2>"$_err" || _rc=$?
@@ -144,11 +183,15 @@ probe() {
   if [ -n "$TIMEOUT_BIN" ] && [ "$_rc" = "124" ]; then
     _status="error"
     _note="TIMED OUT after ${PTIMEOUT}s — the output file holds only what arrived before the kill"
-  elif [ -n "$_failpat" ] && grep -qE "$_failpat" "$_out"; then
+  elif [ -n "$_validpat" ] && ! grep -qE "$_validpat" "$_out"; then
     _status="error"
-    _note="exited $_rc; output says the tool did not run ($(grep -oE "$_failpat" "$_out" | head -1 | tr '\t' ' ' | cut -c1-80)) — out/$_name.txt holds its error, not results"
+    _said=$(grep -oE '"(message|code|summary)"[[:space:]]*:[[:space:]]*"[^"]+"' "$_out" | head -1)
+    [ -n "$_said" ] || _said=$(cat "$_out" "$_err" 2>/dev/null | grep -v '^[[:space:]]*[{}]*[[:space:]]*$' | head -1)
+    _note="exited $_rc and printed no report ($(printf '%s' "$_said" | tr '\t' ' ' | cut -c1-120)) — out/$_name.txt holds its error, not results"
   elif [ "$_expected" -eq 1 ]; then
-    if [ "$_bytes" -eq 0 ]; then
+    if [ "$_bytes" -eq 0 ] && [ "$_haserr" = "yes" ]; then
+      _status="empty"; _note="produced no output, but wrote stderr — read out/$_name.err before concluding none${_emptynote:+. $_emptynote}"
+    elif [ "$_bytes" -eq 0 ]; then
       _status="empty"; _note="${_emptynote:-ran clean, produced no output}"
     else
       _status="ok"; _note="see output file"
@@ -166,7 +209,7 @@ probe() {
   if [ "$_truncated" -eq 1 ]; then
     _note="TRUNCATED: $_cap of $_total lines shown, all in out/$_name.full.txt. $_note"
   fi
-  if [ "$_haserr" = "yes" ]; then
+  if [ "$_haserr" = "yes" ] && [ "$_status" != "empty" ]; then
     _note="$_note [stderr present: out/$_name.err]"
   fi
 
@@ -181,6 +224,14 @@ skip() {
   printf '%s\t%s\tn/a\t-\t0\t0\tno\t-\t%s\n' "$1" "$2" "$3" >> "$MANIFEST"
 }
 
+# gated <name> <axis> — a probe withheld because it can execute what the target
+# ships. `error`, not `n/a`: the area is unexamined, and the audit must say so.
+# v1.3.0 ran `cargo audit` through a committed alias and filed the row clean.
+gated() {
+  printf '%s\t%s\terror\t-\t0\t0\tno\t-\t%s\n' "$1" "$2" \
+    "not run: target-supplied toolchain config can execute code — pass --run-toolchains, inside a disposable container over a copy" >> "$MANIFEST"
+}
+
 has() { command -v "$1" >/dev/null 2>&1; }
 exists() { [ -e "$TARGET/$1" ]; }
 
@@ -188,11 +239,23 @@ exists() { [ -e "$TARGET/$1" ]; }
 # matches only at the root — nested vendor trees leaked into every count — and
 # still walked .git, so git housekeeping mid-run filled the stderr column with
 # noise. Every find using this must end its own expression with an action.
-PRUNE='\( -name .git -o -name node_modules -o -name vendor \) -prune -o'
-# grep -r ignores find's prune, so vendored and generated trees have to be excluded
-# explicitly or they dominate every result set. Minified files are excluded by name:
-# a single 400KB line of bundled JS matches almost any pattern and proves nothing.
-GREP_EX='--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=dist --exclude-dir=build --exclude-dir=coverage --exclude-dir=.venv --exclude-dir=__pycache__ --exclude-dir=third_party --exclude-dir=jquery --exclude="*.min.js" --exclude="*.min.css" --exclude="*.map" --exclude="*-lock.json" --exclude="*.lock"'
+#
+# One list feeds both find's prune and grep's excludes. In v1.3.0 find pruned three
+# names and grep excluded ten, so counts in the same bundle described a different
+# tree from matches: 21 first-party files beside a .venv counted as 3023.
+SKIP_DIRS=".git node_modules vendor dist build coverage .venv venv __pycache__ third_party bower_components target jquery"
+PRUNE=""; GREP_EX=""
+for _d in $SKIP_DIRS; do
+  PRUNE="$PRUNE${PRUNE:+ -o }-name $_d"; GREP_EX="$GREP_EX --exclude-dir=$_d"
+done
+PRUNE="\\( $PRUNE \\) -prune -o"
+# Minified files are excluded by name: a single 400KB line of bundled JS matches
+# almost any pattern and proves nothing.
+FILE_EX='--exclude="*.min.js" --exclude="*.min.css" --exclude="*.map" --exclude="*-lock.json" --exclude="*.lock"'
+GREP_EX="$GREP_EX $FILE_EX"
+# secret-scan skips only what cannot hold the target's own secrets. A build/ or
+# dist/ directory holding a .env is exactly where one leaks.
+SECRET_EX="--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=vendor $FILE_EX"
 
 # `ls -l | awk '{print $9}'` cut every path at its first space. stat prints the
 # size and the whole name; the flag spelling differs between GNU and BSD.
@@ -212,6 +275,11 @@ set -f; for _g in $SECRET_GLOBS; do SECRET_INC="$SECRET_INC --include='$_g'"; do
   echo "host:       $(uname -srm)"
   echo "bash:       ${BASH_VERSION:-unknown}"
   echo "host-containers: $HOST_CONTAINERS"
+  if [ "$RUN_TOOLCHAINS" -eq 1 ]; then
+    echo "toolchains: run (--run-toolchains) — scanners honoured the target's own config"
+  else
+    echo "toolchains: NOT RUN — dependency scanners and git-status were withheld; see their error rows"
+  fi
   if [ -n "$TIMEOUT_BIN" ]; then
     echo "timeout:    ${PTIMEOUT}s per probe, enforced by $TIMEOUT_BIN"
   elif [ "$PTIMEOUT" = "0" ]; then
@@ -226,33 +294,48 @@ set -f; for _g in $SECRET_GLOBS; do SECRET_INC="$SECRET_INC --include='$_g'"; do
 # `[ -d .git ]` was wrong: a target inside a work tree with no .git of its own
 # reported "not version controlled", which is a different claim entirely.
 GITSCOPE=""
-if has git && ( cd "$TARGET" && git rev-parse --is-inside-work-tree ) >/dev/null 2>&1; then
-  GITROOT=$( cd "$TARGET" && git rev-parse --show-toplevel )
+# A target's .git/config can name commands git runs on read: core.fsmonitor (in
+# status and ls-files) and gpg.program under log.showSignature (in log). Both are
+# overridden here. A clean filter declared in .git/info/attributes runs during
+# `git status` and cannot be switched off from the command line, so git-status
+# is gated and git-staged / git-untracked, which never read file content, replace it.
+GIT="git -c core.fsmonitor=false -c log.showSignature=false"
+if has git && ( cd "$TARGET" && $GIT rev-parse --is-inside-work-tree ) >/dev/null 2>&1; then
+  GITROOT=$( cd "$TARGET" && $GIT rev-parse --show-toplevel )
   if [ "$GITROOT" = "$TARGET" ]; then GITSCOPE="repo root"; else GITSCOPE="subdirectory of $GITROOT"; fi
   echo "git scope:  $GITSCOPE" >> "$BUNDLE/env.txt"
-  probe git-remotes      supply-chain 'git remote -v'
+  probe git-remotes      supply-chain "$GIT remote -v"
   # -41 against a cap of 40: one line past the cap is how the probe knows more exists.
-  probe git-log          supply-chain 'git log --oneline -41 -- .' 0 40
-  probe git-commit-count supply-chain 'git rev-list --count HEAD -- .'
-  probe git-authors      supply-chain 'git shortlog -sne HEAD -- .'
-  probe git-status       supply-chain 'git status --short -- .'
-  probe git-tracked      supply-chain 'git ls-files -- .' 0 40
-  probe git-tags         supply-chain 'git tag --list' 0 40
+  probe git-log          supply-chain "$GIT log --oneline -41 -- ." 0 40
+  probe git-commit-count supply-chain "$GIT rev-list --count HEAD -- ."
+  probe git-authors      supply-chain "$GIT shortlog -sne HEAD -- ."
+  if [ "$RUN_TOOLCHAINS" -eq 1 ]; then probe git-status supply-chain "$GIT status --short -- ."
+  else gated git-status supply-chain; fi
+  probe git-staged       supply-chain "$GIT diff-index --cached --name-status HEAD -- ." 0 40
+  probe git-untracked    supply-chain "$GIT ls-files --others --exclude-standard -- ." 0 40
+  probe git-tracked      supply-chain "$GIT ls-files -- ." 0 40
+  probe git-tags         supply-chain "$GIT tag --list" 0 40
   probe git-submodules   supply-chain 'test -f .gitmodules && cat .gitmodules' '0 1'
   probe git-churn        code-quality \
-    'git log --format=format: --name-only -- . | grep -v "^$" | sort | uniq -c | sort -rn' '0 1' 25
+    "$GIT log --format=format: --name-only -- . | grep -v '^\$' | sort | uniq -c | sort -rn" '0 1' 25
 else
-  for p in git-remotes git-log git-commit-count git-authors git-status git-tracked git-tags git-submodules; do
+  for p in git-remotes git-log git-commit-count git-authors git-status git-staged git-untracked git-tracked git-tags git-submodules; do
     skip "$p" supply-chain "not inside a git work tree, or git not installed"
   done
   skip git-churn code-quality "no git history to mine"
 fi
 
 # ---------------------------------------------------------------- dependencies
+# Every scanner below reads configuration the target ships, and several run it:
+# a cargo alias, a composer plugin, a Gemfile, a go.mod toolchain line, a
+# pyproject build backend. They run only with --run-toolchains, and then with each
+# route that has a command-line off switch switched off. The rest are listed in
+# SKILL.md under "What probe.sh does not guarantee".
 DEPS=0
 if exists composer.json; then DEPS=1
   probe composer-manifest supply-chain 'cat composer.json'
-  if has composer; then probe composer-audit supply-chain 'composer audit --format=plain --no-interaction' '0 1 2'
+  if [ "$RUN_TOOLCHAINS" -eq 0 ]; then gated composer-audit supply-chain
+  elif has composer; then probe composer-audit supply-chain 'composer audit --format=plain --no-interaction --no-plugins --no-scripts' '0 1 2'
   else skip composer-audit supply-chain "composer.json present but composer not on PATH"; fi
 fi
 if exists package.json; then DEPS=1
@@ -260,33 +343,49 @@ if exists package.json; then DEPS=1
   # npm audit exits 1 when it FINDS vulnerabilities. That is the finding.
   # It also exits 1 when it cannot audit at all (ENOLOCK: no lockfile), and
   # prints a JSON error object to stdout — so the content decides, not the exit.
-  if has npm; then probe npm-audit supply-chain 'npm audit --json' '0 1' '' '"code"[[:space:]]*:[[:space:]]*"E[A-Z0-9]+"'
+  # --registry on the command line outranks a registry set in the target's .npmrc.
+  if [ "$RUN_TOOLCHAINS" -eq 0 ]; then gated npm-audit supply-chain
+  elif has npm; then probe npm-audit supply-chain 'npm audit --json --registry=https://registry.npmjs.org/' '0 1' '' '"(auditReportVersion|vulnerabilities)"[[:space:]]*:'
   else skip npm-audit supply-chain "package.json present but npm not on PATH"; fi
 fi
 if exists requirements.txt || exists pyproject.toml; then DEPS=1
-  if has pip-audit; then probe pip-audit supply-chain 'pip-audit --progress-spinner off' '0 1'
-  else skip pip-audit supply-chain "python manifest present but pip-audit not installed"; fi
+  # With no arguments pip-audit audits the Python environment it is installed in,
+  # not the target. v1.3.0 reported a Django 2.2 target clean that way.
+  if [ "$RUN_TOOLCHAINS" -eq 0 ]; then gated pip-audit supply-chain
+  elif ! has pip-audit; then skip pip-audit supply-chain "python manifest present but pip-audit not installed"
+  elif exists requirements.txt; then probe pip-audit supply-chain 'pip-audit -r requirements.txt -f json --progress-spinner off' '0 1' '' '"dependencies"[[:space:]]*:'
+  else probe pip-audit supply-chain 'pip-audit -f json --progress-spinner off .' '0 1' '' '"dependencies"[[:space:]]*:'; fi
 fi
 if exists go.mod; then DEPS=1
-  if has govulncheck; then probe go-vulncheck supply-chain 'govulncheck ./...' '0 3'
+  # GOTOOLCHAIN=local: a go.mod `toolchain` line otherwise downloads and runs that Go.
+  if [ "$RUN_TOOLCHAINS" -eq 0 ]; then gated go-vulncheck supply-chain
+  elif has govulncheck; then probe go-vulncheck supply-chain 'GOTOOLCHAIN=local govulncheck ./...' '0 3'
   else skip go-vulncheck supply-chain "go.mod present but govulncheck not installed"; fi
 fi
 if exists Cargo.toml; then DEPS=1
-  if has cargo; then probe cargo-audit supply-chain 'cargo audit' '0 1'
-  else skip cargo-audit supply-chain "Cargo.toml present but cargo not on PATH"; fi
+  # cargo-audit directly: `cargo audit` resolves aliases from the target's .cargo/config.toml.
+  if [ "$RUN_TOOLCHAINS" -eq 0 ]; then gated cargo-audit supply-chain
+  elif has cargo-audit; then probe cargo-audit supply-chain 'cargo-audit audit' '0 1'
+  else skip cargo-audit supply-chain "Cargo.toml present but cargo-audit not installed"; fi
 fi
 if exists Gemfile; then DEPS=1
-  if has bundle; then probe bundler-audit supply-chain 'bundle audit check --update' '0 1'
-  else skip bundler-audit supply-chain "Gemfile present but bundler not on PATH"; fi
+  # bundler-audit directly reads Gemfile.lock; `bundle audit` goes through bundler.
+  if [ "$RUN_TOOLCHAINS" -eq 0 ]; then gated bundler-audit supply-chain
+  elif has bundler-audit; then probe bundler-audit supply-chain 'bundler-audit check --update' '0 1'
+  else skip bundler-audit supply-chain "Gemfile present but bundler-audit not installed"; fi
 fi
 [ "$DEPS" -eq 1 ] || skip dependency-audit supply-chain "no recognised package manifest at the target root"
 
 # ---------------------------------------------------------------- build inputs
 # find exits 1 only when it could not read something, so find probes accept 0 alone.
+# Build definitions by every common name, not just Dockerfile*. Fetches include a
+# base image that floats: `:latest`, or no tag at all, which means `:latest`.
+# Instructions are case-insensitive, so the pattern is too.
+DOCKER_INC="--include='Dockerfile*' --include='*.Dockerfile' --include='*.dockerfile' --include='Containerfile*'"
 probe dockerfiles supply-chain \
-  "find . $PRUNE -name 'Dockerfile*' -print" 0 20
+  "find . $PRUNE \\( -name 'Dockerfile*' -o -name '*.Dockerfile' -o -name '*.dockerfile' -o -name 'Containerfile*' \\) -print" 0 20
 probe dockerfile-fetches supply-chain \
-  "grep -rHnE '(git clone|curl|wget|ADD https?://)' --include='Dockerfile*' $GREP_EX ." '0 1'
+  "grep -rHniE '(git clone|curl|wget|ADD[[:space:]]+https?://|^[[:space:]]*FROM([[:space:]]+--[^[:space:]]+)*[[:space:]]+[^[:space:]]+:latest([[:space:]]|\$)|^[[:space:]]*FROM([[:space:]]+--[^[:space:]]+)*[[:space:]]+[^:@[:space:]]+([[:space:]]+AS[[:space:]]+[^[:space:]]+)?[[:space:]]*\$)' $DOCKER_INC $GREP_EX ." '0 1'
 probe compose-files supply-chain \
   "find . $PRUNE \\( -name 'docker-compose*.y*ml' -o -name 'compose.y*ml' \\) -print" 0 20
 
@@ -296,24 +395,36 @@ probe compose-files supply-chain \
 # not about the tree, and v1.0.0 did it by default.
 if [ "$HOST_CONTAINERS" -eq 1 ] && has docker; then
   probe docker-ps observability 'docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}"'
+  # An exec that fails says nothing about which clients exist, so it is reported
+  # on stderr and fails the probe. v1.3.0 discarded it and filed `empty`.
   probe db-clients data-quality \
-    'for c in $(docker ps --format "{{.Names}}"); do for b in mariadb mysql psql mongosh sqlite3 redis-cli; do if docker exec "$c" sh -c "command -v $b" >/dev/null 2>&1; then echo "$c: $b"; fi; done; done' '0 1'
+    'cs=$(docker ps --format "{{.Names}}") || exit 1; rc=0; for c in $cs; do if docker exec "$c" true >/dev/null; then docker exec "$c" sh -c "for b in mariadb mysql psql mongosh sqlite3 redis-cli; do command -v \$b >/dev/null 2>&1 && echo \$b; done; true" | sed "s/^/$c: /"; else echo "$c: docker exec failed — which clients it has is unknown" >&2; rc=1; fi; done; exit $rc'
 else
   skip docker-ps  observability "host container inspection is opt-in; pass --host-containers"
   skip db-clients data-quality  "host container inspection is opt-in; pass --host-containers"
 fi
 
 # ---------------------------------------------------------------- secrets
+# Case-insensitive: DB_PASSWORD= and AWS_SECRET_ACCESS_KEY= are the convention.
+# A key may carry a suffix (SECRET_KEY, secretKey) and be quoted ("password":);
+# the separator is :, = or =>, or a comma between two quotes (define('DB_PASSWORD',
+# '…')). A plural (tokens) is not a key, and a bare comma is a list. URL credentials are
+# a second shape. The placeholder filter reads only the content after path:line:,
+# so a hit under examples/ or functions/ is kept. A `$` value is never a literal
+# (the value class excludes it), so PHP's `$password = "…"` is no longer dropped.
+# A value that is a call (`tokenExpiry = Date.now()`) is dropped: it is code.
+# grep -v exits 1 when nothing survives it; `|| [ $? -eq 1 ]` keeps that from
+# replacing grep -r's 2 when part of the tree could not be read.
 probe secret-scan security \
-  "grep -rInE '(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[[:space:]]*[:=][[:space:]]*\"?'\"'\"'?[A-Za-z0-9_./+=-]{6,}' $SECRET_INC $GREP_EX . | grep -viE '(example|sample|placeholder|changeme|your[_-]|xxx|csrf|jquery|function|typeof|prototype|[$][{]|[$][A-Z_]+)'" '0 1' 40 '' \
-  "no assigned literal in the file types listed in env.txt — other files were not read; this is not evidence of no secrets"
+  "grep -rIniE '((password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)([_-]?key|[_-][a-z0-9_-]*)?([\"'\"'\"']?[[:space:]]*(:|=>?)[[:space:]]*[\"'\"'\"']?|[\"'\"'\"'][[:space:]]*,[[:space:]]*[\"'\"'\"'])[A-Za-z0-9_./+=-]{6,}|[a-z][a-z0-9+.-]*://[^/:@[:space:]\"'\"'\"']+:[^/@[:space:]\"'\"'\"']{6,}@)' $SECRET_INC $SECRET_EX . | { grep -viE '^[^:]*:[0-9]+:.*(example|sample|placeholder|changeme|your[_-]|xxx|csrf|jquery|function|typeof|prototype|(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)([_-]?key|[_-][a-z0-9_-]*)?[\"'\"'\"']?[[:space:]]*(:|=>?)[[:space:]]*[A-Za-z_][A-Za-z0-9_.]*[(])' || [ \$? -eq 1 ]; }" '0 1' 40 '' \
+  "the pattern matched nothing in the file types listed in env.txt. It finds one-line assignments and URL credentials only (SKILL.md, What probe.sh does not guarantee) — this is not evidence of no secrets"
 probe env-files security "find . $PRUNE -name '.env*' -print" 0 20
 probe published-ports security \
   "grep -rhnE '^[[:space:]]*-[[:space:]]*\"?[0-9]{2,5}:[0-9]{2,5}' --include='docker-compose*.y*ml' --include='compose*.y*ml' $GREP_EX ." '0 1' 40
 
 # ---------------------------------------------------------------- surface
 probe route-tables architecture \
-  "grep -rlIE '(GET|POST|PUT|PATCH|DELETE)[[:space:]]+/' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.rb' --include='*.go' $GREP_EX . | grep -viE '(node_modules|vendor|test|spec)'" '0 1' 20
+  "grep -rlIE '(GET|POST|PUT|PATCH|DELETE)[[:space:]]+/' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.rb' --include='*.go' $GREP_EX . | { grep -viE '(node_modules|vendor|test|spec)' || [ \$? -eq 1 ]; }" '0 1' 20
 probe route-verbs architecture \
   "grep -rhoIE '\"(GET|POST|PUT|PATCH|DELETE) /[A-Za-z0-9_/:.-]*\"' --include='*.php' --include='*.inc.php' --include='*.js' --include='*.ts' $GREP_EX . | tr -d '\"' | awk '{print \$1}' | sort | uniq -c | sort -rn" '0 1' 20
 
@@ -330,7 +441,7 @@ if exists composer.json && has php; then
 else
   skip php-syntax code-quality "no composer.json, or php not on PATH"
 fi
-# shellcheck absence is a DOWNGRADE, not a clean result — say which ran.
+# Absence of shellcheck is a DOWNGRADE, not a clean result — say which ran.
 #
 # Checkers run inside `find -exec sh -c`, which maps "the checker found something"
 # (php -l 255, shellcheck 1, bash -n 2) to success and anything else to failure.
@@ -359,13 +470,13 @@ probe ci-badges testing \
 
 # ---------------------------------------------------------------- observability
 probe health-endpoints observability \
-  "grep -rlIE '(healthz|livez|readyz|/health|/ready|HealthCheck)' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.go' $GREP_EX . | grep -viE '(node_modules|vendor)'" '0 1' 20
+  "grep -rlIE '(healthz|livez|readyz|/health|/ready|HealthCheck)' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.go' $GREP_EX . | { grep -viE '(node_modules|vendor)' || [ \$? -eq 1 ]; }" '0 1' 20
 probe log-surface observability \
   "grep -rhoIE '(Monolog|winston|pino|logrus|zap|structlog|SystemLogger|EventAuditLogger)' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.go' $GREP_EX . | sort | uniq -c | sort -rn" '0 1' 20
 probe telemetry observability \
-  "grep -rlIE '(opentelemetry|OTEL_|prometheus|statsd|datadog|langfuse|phoenix)' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.go' --include='*.y*ml' $GREP_EX . | grep -viE '(node_modules|vendor)'" '0 1' 20
+  "grep -rlIE '(opentelemetry|OTEL_|prometheus|statsd|datadog|langfuse|phoenix)' --include='*.php' --include='*.js' --include='*.ts' --include='*.py' --include='*.go' --include='*.y*ml' $GREP_EX . | { grep -viE '(node_modules|vendor)' || [ \$? -eq 1 ]; }" '0 1' 20
 probe swallowed-exceptions observability \
-  "grep -rnIE -A1 'catch[[:space:]]*\\(' --include='*.php' --include='*.js' --include='*.ts' $GREP_EX . | grep -E '^\\S+[-:][0-9]+[-:][[:space:]]*\\}' | grep -viE '(node_modules|vendor|test)'" '0 1' 30
+  "grep -rnIE -A1 'catch[[:space:]]*\\(' --include='*.php' --include='*.js' --include='*.ts' $GREP_EX . | { grep -E '^\\S+[-:][0-9]+[-:][[:space:]]*\\}' || [ \$? -eq 1 ]; } | { grep -viE '(node_modules|vendor|test)' || [ \$? -eq 1 ]; }" '0 1' 30
 
 # ---------------------------------------------------------------- size & shape
 probe repo-size performance 'du -sh . | cut -f1'
@@ -376,7 +487,9 @@ probe file-count performance "find . $PRUNE -type f -print0 | tr -dc '\\000' | w
 # ---------------------------------------------------------------- compliance
 probe license-files compliance \
   "find . -maxdepth 1 \\( -name 'LICENSE*' -o -name 'COPYING*' -o -name 'NOTICE*' \\) -print | sort"
-if exists package.json && has npm; then
+if exists package.json && [ "$RUN_TOOLCHAINS" -eq 0 ]; then
+  gated dep-licenses compliance
+elif exists package.json && has npm; then
   probe dep-licenses compliance 'npm ls --json --depth=0' '0 1'
 else
   skip dep-licenses compliance "no package.json, or npm not on PATH"
