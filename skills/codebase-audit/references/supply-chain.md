@@ -51,7 +51,7 @@ Where did this code come from, and can you prove it?
 
 ## Dependency posture
 
-`probe.sh` runs the ecosystem's own auditor where a manifest exists — `composer audit`, `npm audit`, `pip-audit`, `govulncheck`, `cargo audit` — each of which resolves against a live advisory database. Read the output rather than the exit code: several of these exit non-zero *because* they found something, which is a success of the tool and a finding for you.
+`probe.sh` runs the ecosystem's own auditor where a manifest exists — `composer audit`, `npm audit`, `pip-audit`, `govulncheck`, `cargo audit` — each of which resolves against a live advisory database. Read the output rather than the exit code: several of these exit non-zero *because* they found something, which is a success of the tool and a finding for you. Most also exit with that same code when they could not audit at all — a missing lockfile, an unreachable advisory database. `probe.sh` checks `npm audit`'s output for that case and files it `error`; for the others an `ok` row can hold an error message, so open the file before citing it.
 
 Beyond CVEs, three things matter and none are in the audit output:
 

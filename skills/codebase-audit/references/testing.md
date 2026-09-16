@@ -4,6 +4,7 @@
 - The decisive question
 - Does CI measure this repository?
 - What the tests actually assert
+- Mutation: asking the decisive question directly
 - Coverage is a map of intent
 - Silent-success patterns in this axis
 - What to measure
@@ -51,6 +52,25 @@ A test that cannot fail is worse than a missing test, because it occupies the sl
 
 Also note what has **no** test: the paths through which data enters the system, the authorization primitive, and anything handling money, identity, or clinical fact. Absence there is a finding regardless of the aggregate number.
 
+## Mutation: asking the decisive question directly
+
+Reading tests tells you what they appear to check. Breaking the code tells you what they do check. The decisive question — *what would have to break for a test to notice?* — has a direct experiment: break it, run the suite, and see.
+
+In an audit, do it by hand and keep it small. Pick three to five behaviours the project cannot afford to lose — the authorization check, the write path, the thing the README says is tested — and for each, copy the tree, delete or invert that one behaviour, and run the suite. Record each as **killed** (the suite went red) or **survived** (it stayed green).
+
+```
+mutation (illustrative)                     result
+delete the ACL check in PatientController   survived — 412 passed
+return [] from the search service           killed — 3 failed
+skip the audit-log write                    survived — 412 passed
+```
+
+A survivor is a Confirmed finding with its own reproduction, and it is the strongest evidence this axis produces: a behaviour the project believes is protected and is not. It also settles the claim no badge or coverage number can — a suite at 90% line coverage that lets the ACL check be deleted does not test authorization.
+
+Where a mutation tool is already configured — Stryker, PIT, mutmut, Infection, cargo-mutants — read its last report. Do not install one to produce a score: a full run takes hours on a large codebase, and a mutation score has the same problem as a coverage number. Five hand mutations aimed at what matters answer the question; five thousand aimed at everything bury it.
+
+Two cautions. Run the unmutated suite first and record its result, so a pre-existing failure is not counted as a kill. And make sure the suite actually exercises the copy you mutated — a test runner pointed at an installed package, a cached build, or the original tree will report every mutation as survived.
+
 ## Coverage is a map of intent
 
 Where a coverage tool is configured, read the report as a map of what the authors cared about rather than as a score. A number on its own is nearly meaningless — 80% coverage concentrated in getters and absent from the payment path is worse than 40% concentrated in the payment path.
@@ -74,4 +94,5 @@ The last one is worth a direct probe, because it is easy to check and catches a 
 - Whether a failing run blocks a merge.
 - Test count against source count, with the caveat stated.
 - A read sample of tests, looking for assertions that cannot fail.
+- Three to five hand mutations of load-bearing behaviour, each recorded as killed or survived.
 - Exit code of the runner when zero tests are collected.

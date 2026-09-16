@@ -42,6 +42,31 @@ case "$1" in
 esac
 STUBEOF
 chmod +x "$STUB/cargo" "$STUB/npm"
+# A GNU-style timeout (exit 124 on expiry) for hosts without one, and a docker
+# that answers instantly or, with DOCKER_STUB_HANG set, never.
+TSTUB="$TMP/timeoutbin"; mkdir -p "$TSTUB"
+cat > "$TSTUB/timeout" <<'STUBEOF'
+#!/bin/bash
+s=$1; shift
+# The watcher leaves a mark before it kills, so expiry is decided by the mark and
+# not by whether the watcher is still alive — that raced under load.
+mark="${TMPDIR:-/tmp}/timeout-stub.$$"; rm -f "$mark"
+"$@" & p=$!
+( trap 'kill $sp 2>/dev/null; exit 0' TERM; sleep "$s" & sp=$!; wait $sp; : > "$mark"; kill -TERM "$p" 2>/dev/null ) & w=$!
+if wait "$p"; then rc=0; else rc=$?; fi
+kill -TERM "$w" 2>/dev/null; wait "$w" 2>/dev/null
+if [ -e "$mark" ]; then rm -f "$mark"; exit 124; fi
+exit "$rc"
+STUBEOF
+cat > "$STUB/docker" <<'STUBEOF'
+#!/bin/sh
+[ -z "${DOCKER_STUB_HANG:-}" ] || exec sleep 5
+case "$1" in
+  ps) echo c1 ;;
+  exec) case "$*" in *"command -v mariadb"*) exit 0 ;; *) exit 1 ;; esac ;;
+esac
+STUBEOF
+chmod +x "$TSTUB/timeout" "$STUB/docker"
 
 echo "probe.sh classification tests"
 echo
@@ -117,8 +142,21 @@ mkdir -p "$TMP/many"
 for e in a b c d e f g h i j k l m n o p q r s t u v w x y; do printf 'x\n' > "$TMP/many/f.x$e"; done
 M=$(run "$TMP/many")
 case "$(note_of "$M" lang-census)" in
-  TRUNCATED*) ok "output at the line cap is flagged TRUNCATED" ;;
-  *) bad "output at the line cap is flagged TRUNCATED" "note starting TRUNCATED" "$(note_of "$M" lang-census)" ;;
+  TRUNCATED*) ok "output over the line cap is flagged TRUNCATED" ;;
+  *) bad "output over the line cap is flagged TRUNCATED" "note starting TRUNCATED" "$(note_of "$M" lang-census)" ;;
+esac
+FULL="$(dirname "$M")/out/lang-census.full.txt"
+[ "$(wc -l < "$FULL" 2>/dev/null | tr -d ' ')" = "25" ] \
+  && ok "the complete output is kept beside the capped file" \
+  || bad "the complete output is kept beside the capped file" "25 lines in lang-census.full.txt" "$(wc -l < "$FULL" 2>/dev/null)"
+# Exactly at the cap is complete. v1.2.x flagged it, because head cannot say
+# whether anything followed.
+mkdir -p "$TMP/atcap"
+for e in a b c d e f g h i j k l m n o p q r s t; do printf 'x\n' > "$TMP/atcap/f.x$e"; done
+M=$(run "$TMP/atcap")
+case "$(note_of "$M" lang-census)" in
+  TRUNCATED*) bad "output exactly at the cap is not flagged" "no TRUNCATED" "$(note_of "$M" lang-census)" ;;
+  *) ok "output exactly at the cap is not flagged" ;;
 esac
 mkdir -p "$TMP/few"; printf 'x\n' > "$TMP/few/a.xa"; printf 'x\n' > "$TMP/few/b.xb"
 M=$(run "$TMP/few")
@@ -218,6 +256,165 @@ M=$(run "$TMP/shtests")
 [ "$(cat "$(dirname "$M")/out/test-file-count.txt")" = "2" ] \
   && ok "shell test files are counted" \
   || bad "shell test files are counted" 2 "$(cat "$(dirname "$M")/out/test-file-count.txt")"
+
+# --- exit status carries the producer's failure ----------------------------
+# v1.2.x ended most commands in `| head`, so the exit column was head's and a
+# find that could not read the tree reported 0 and `empty`.
+echo
+echo "exit status and unreadable targets"
+mkdir -p "$TMP/perm2/shut"; : > "$TMP/perm2/shut/Dockerfile"; : > "$TMP/perm2/shut/a.js"
+chmod 000 "$TMP/perm2/shut"
+M=$(run "$TMP/perm2")
+for p in dockerfiles lang-census; do
+  [ "$(status_of "$M" $p)" != "empty" ] \
+    && ok "$p on an unreadable subtree is not empty" \
+    || bad "$p on an unreadable subtree is not empty" "error or output" "empty (exit $(field "$M" $p 4))"
+done
+chmod 755 "$TMP/perm2/shut"
+# A target that can be entered but not listed. `ls LICENSE* 2>/dev/null` reported
+# every name absent and filed empty.
+mkdir -p "$TMP/xonly"; : > "$TMP/xonly/LICENSE"; : > "$TMP/xonly/.editorconfig"
+chmod 100 "$TMP/xonly"
+M=$(run "$TMP/xonly")
+chmod 755 "$TMP/xonly"
+for p in lint-config ci-config license-files; do
+  [ "$(status_of "$M" $p)" = "error" ] \
+    && ok "$p on an unlistable target is error, not empty" \
+    || bad "$p on an unlistable target is error, not empty" error "$(status_of "$M" $p)"
+done
+
+# Checkers run through xargs report findings as a nonzero exit, and BSD xargs
+# passes that on as 1 where GNU uses 123. Both must read as results.
+mkdir -p "$TMP/checkers"; printf 'FROM alpine\n' > "$TMP/checkers/Dockerfile"; printf 'if then\n' > "$TMP/checkers/bad.sh"
+M=$(run "$TMP/checkers")
+[ "$(status_of "$M" dockerfile-fetches)" = "empty" ] \
+  && ok "a Dockerfile with no fetches is empty, not error" \
+  || bad "a Dockerfile with no fetches is empty, not error" empty "$(status_of "$M" dockerfile-fetches) (exit $(field "$M" dockerfile-fetches 4))"
+if command -v shellcheck >/dev/null 2>&1; then SP=shell-lint; else SP=shell-syntax-only; fi
+[ "$(status_of "$M" $SP)" = "ok" ] \
+  && ok "a shell syntax error found by $SP is ok, not error" \
+  || bad "a shell syntax error found by $SP is ok, not error" ok "$(status_of "$M" $SP) (exit $(field "$M" $SP 4))"
+# php and shellcheck, stubbed with their real exit conventions: php -l 255 on a
+# parse error, shellcheck 1 on findings and 2+ when it could not check a file.
+CSTUB="$TMP/checkerbin"; mkdir -p "$CSTUB"
+cat > "$CSTUB/php" <<'STUBEOF'
+#!/bin/sh
+[ "$1" = "-l" ] || exit 64
+if grep -q ';' "$2"; then echo "No syntax errors detected in $2"; exit 0; fi
+echo "PHP Parse error: syntax error in $2 on line 1"; exit 255
+STUBEOF
+cat > "$CSTUB/shellcheck" <<'STUBEOF'
+#!/bin/sh
+shift 2
+rc=0
+for f; do case "$f" in
+  *bad.sh) echo "$f:1:1: warning: stub finding [SC0000]"; [ $rc -ge 1 ] || rc=1 ;;
+  *unreadable*) echo "$f: cannot read" >&2; rc=2 ;;
+esac; done
+exit $rc
+STUBEOF
+chmod +x "$CSTUB/php" "$CSTUB/shellcheck"
+printf '{}\n' > "$TMP/checkers/composer.json"; printf '<?php echo 1\n' > "$TMP/checkers/bad.php"; printf '<?php echo 1;\n' > "$TMP/checkers/good.php"
+M=$(PATH="$CSTUB:$PATH" run "$TMP/checkers")
+OUT="$(dirname "$M")/out"
+[ "$(status_of "$M" php-syntax)" = "ok" ] && grep -q 'bad.php' "$OUT/php-syntax.txt" && ! grep -q 'No syntax errors' "$OUT/php-syntax.txt" \
+  && ok "a php parse error is ok, listed, and clean files are filtered out" \
+  || bad "a php parse error is ok, listed, and clean files are filtered out" "ok, bad.php only" "$(status_of "$M" php-syntax): $(tr '\n' ' ' < "$OUT/php-syntax.txt" 2>/dev/null)"
+[ "$(status_of "$M" shell-lint)" = "ok" ] \
+  && ok "shellcheck findings are ok, not error" \
+  || bad "shellcheck findings are ok, not error" ok "$(status_of "$M" shell-lint) (exit $(field "$M" shell-lint 4))"
+: > "$TMP/checkers/unreadable.sh"
+M=$(PATH="$CSTUB:$PATH" run "$TMP/checkers")
+[ "$(status_of "$M" shell-lint)" != "ok" ] && [ "$(status_of "$M" shell-lint)" != "empty" ] \
+  && ok "shellcheck unable to check a file is not ok" \
+  || bad "shellcheck unable to check a file is not ok" "output or error" "$(status_of "$M" shell-lint)"
+
+# --- pruning and awkward names in the size probes ---------------------------
+echo
+echo "pruning and file names"
+mkdir -p "$TMP/mono/pkgs/a/node_modules/junk" "$TMP/mono/src"
+printf 'real\n' > "$TMP/mono/src/app.js"
+i=0; while [ $i -lt 20 ]; do printf '%0200d\n' 0 > "$TMP/mono/pkgs/a/node_modules/junk/j$i.js"; i=$((i+1)); done
+M=$(run "$TMP/mono")
+OUT="$(dirname "$M")/out"
+[ "$(cat "$OUT/file-count.txt")" = "1" ] \
+  && ok "nested node_modules are pruned from file-count" \
+  || bad "nested node_modules are pruned from file-count" 1 "$(cat "$OUT/file-count.txt")"
+grep -q node_modules "$OUT/largest-files.txt" \
+  && bad "nested node_modules are pruned from largest-files" "no node_modules paths" "$(head -1 "$OUT/largest-files.txt")" \
+  || ok "nested node_modules are pruned from largest-files"
+
+mkdir -p "$TMP/names/sp ace"
+printf '%01000d\n' 0 > "$TMP/names/sp ace/big file.txt"
+: > "$TMP/names/new
+line.txt"
+M=$(run "$TMP/names")
+OUT="$(dirname "$M")/out"
+grep -q '\./sp ace/big file\.txt$' "$OUT/largest-files.txt" \
+  && ok "largest-files keeps a path containing spaces whole" \
+  || bad "largest-files keeps a path containing spaces whole" "./sp ace/big file.txt" "$(head -1 "$OUT/largest-files.txt")"
+[ "$(cat "$OUT/file-count.txt")" = "2" ] \
+  && ok "a filename containing a newline counts once" \
+  || bad "a filename containing a newline counts once" 2 "$(cat "$OUT/file-count.txt")"
+
+# --- secret-scan coverage ---------------------------------------------------
+echo
+echo "secret-scan coverage"
+mkdir -p "$TMP/langs"
+for f in s.tsx s.jsx s.vue s.java s.kt s.cs s.rs s.swift s.c s.cpp s.md Dockerfile Makefile; do
+  printf 'api_key = "AKIA1234567890ABCD"\n' > "$TMP/langs/$f"
+done
+# Run from a directory holding decoys: an unquoted glob in probe.sh expands
+# against the caller's cwd, and did — `*.md` became `CLAUDE.md`.
+mkdir -p "$TMP/decoycwd"; : > "$TMP/decoycwd/CLAUDE.md"; : > "$TMP/decoycwd/x.tsx"; : > "$TMP/decoycwd/Makefile.bak"
+M=$(cd "$TMP/decoycwd" && run "$TMP/langs")
+N=$(wc -l < "$(dirname "$M")/out/secret-scan.txt" | tr -d ' ')
+[ "$N" = "13" ] \
+  && ok "the 13 file types v1.2.0 skipped are scanned" \
+  || bad "the 13 file types v1.2.0 skipped are scanned" 13 "$N: $(cut -d: -f1 "$(dirname "$M")/out/secret-scan.txt" | tr '\n' ' ')"
+M=$(run "$TMP/plain")
+case "$(note_of "$M" secret-scan)" in
+  *"not evidence of no secrets"*) ok "an empty secret-scan says what it did not read" ;;
+  *) bad "an empty secret-scan says what it did not read" "coverage caveat" "$(note_of "$M" secret-scan)" ;;
+esac
+grep -q '^secret-scan reads: .*\*\.tsx' "$(dirname "$M")/env.txt" \
+  && ok "env.txt lists the file types secret-scan read" \
+  || bad "env.txt lists the file types secret-scan read" "secret-scan reads: …" "missing"
+
+# --- timeouts ---------------------------------------------------------------
+echo
+echo "timeouts"
+if ! command -v timeout >/dev/null 2>&1 && ! command -v gtimeout >/dev/null 2>&1; then
+  M=$(run "$TMP/plain")
+  grep -q '^timeout: *NONE ENFORCED' "$(dirname "$M")/env.txt" \
+    && ok "env.txt says no timeout was enforced when no binary exists" \
+    || bad "env.txt says no timeout was enforced when no binary exists" "NONE ENFORCED" "$(grep '^timeout' "$(dirname "$M")/env.txt")"
+else
+  echo "  skip  no-binary env.txt test — this host has a timeout binary"
+fi
+M=$(PATH="$TSTUB:$STUB:$PATH" run "$TMP/dock" --host-containers --timeout 30)
+grep -q '^timeout: *30s per probe, enforced by timeout' "$(dirname "$M")/env.txt" \
+  && ok "env.txt names the timeout that was enforced" \
+  || bad "env.txt names the timeout that was enforced" "30s … enforced by timeout" "$(grep '^timeout' "$(dirname "$M")/env.txt")"
+# v1.2.0 prefixed `timeout N` to the command string: `timeout 30 for c in …` is a
+# syntax error, filed as empty.
+[ "$(status_of "$M" db-clients)" = "ok" ] && [ "$(field "$M" db-clients 7)" = "no" ] \
+  && ok "a compound command runs under a timeout" \
+  || bad "a compound command runs under a timeout" "ok, no stderr" "$(status_of "$M" db-clients), stderr=$(field "$M" db-clients 7)"
+M=$(DOCKER_STUB_HANG=1 PATH="$TSTUB:$STUB:$PATH" run "$TMP/dock" --host-containers --timeout 1)
+case "$(status_of "$M" docker-ps) $(note_of "$M" docker-ps)" in
+  "error TIMED OUT"*) ok "a probe killed by the timeout is error, and says so" ;;
+  *) bad "a probe killed by the timeout is error, and says so" "error TIMED OUT…" "$(status_of "$M" docker-ps) $(note_of "$M" docker-ps)" ;;
+esac
+
+# --- usage ------------------------------------------------------------------
+echo
+echo "usage"
+H=$(bash "$PROBE" --help 2>&1); RC=$?
+case "$RC $H" in
+  "2 probe.sh <target-dir>"*"--timeout N"*) ok "--help prints the synopsis and exits 2" ;;
+  *) bad "--help prints the synopsis and exits 2" "exit 2, synopsis" "exit $RC: $(echo "$H" | head -1)" ;;
+esac
 
 # --- git scope --------------------------------------------------------------
 echo

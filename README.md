@@ -38,19 +38,27 @@ machine — it degrades to `n/a` rather than failing when a tool is absent.
 ## Collecting evidence
 
 ```sh
-bash "${CLAUDE_PLUGIN_ROOT}"/skills/codebase-audit/scripts/probe.sh <target-dir> [-o <bundle-dir>]
+bash "${CLAUDE_PLUGIN_ROOT}"/skills/codebase-audit/scripts/probe.sh <target-dir> [-o <bundle-dir>] \
+     [--host-containers] [--timeout N]
 ```
 
 Detects the stack rather than assuming it, runs every applicable probe once, and writes a bundle plus
 `manifest.tsv`. Prints the bundle path on stdout and a summary on stderr.
 
 ```
-probe                 axis           status  exit  bytes  file                      note
-git-commit-count      supply-chain   ok      0     2      out/git-commit-count.txt  see output file
-ci-config             testing        empty   0     0      out/ci-config.txt         ran clean, produced no output
-db-clients            data-quality   n/a     -     0      -                         no container declared by this target
-composer-audit        supply-chain   error   1     0      out/composer-audit.txt    Could not open composer.lock
+probe               axis          status  exit  bytes  lines  stderr  file                        note
+git-commit-count    supply-chain  ok      0     2      1      no      out/git-commit-count.txt    see output file
+npm-audit           supply-chain  error   1     240    7      yes     out/npm-audit.txt           exited 1; output says the tool did not run ("code": "ENOLOCK") — …
+dockerfile-fetches  supply-chain  ok      0     74     1      no      out/dockerfile-fetches.txt  see output file
+db-clients          data-quality  n/a     -     0      0      no      -                           host container inspection is opt-in; pass --host-containers
+secret-scan         security      empty   1     0      0      no      out/secret-scan.txt         no assigned literal in the file types listed in env.txt — …
 ```
+
+Six rows from a real run against a small Node fixture with no lockfile; long notes are cut at `…`.
+Nine columns: `stderr` says the probe wrote to stderr (`out/<probe>.err`), and `lines` over a probe's
+cap adds a `TRUNCATED` note with the complete output in `out/<probe>.full.txt`. `env.txt` records
+the target, host, git scope, the file types `secret-scan` read, and whether a timeout was actually
+enforced.
 
 **The five statuses are the point.** `empty` means the probe ran and found nothing — a result, and
 sometimes a finding. `error` means it could not run, so you know nothing about that area. `n/a` means
@@ -60,9 +68,10 @@ signal findings that way, and discarding it throws away the best evidence in the
 Collapsing `empty` and `error` into one silent outcome is Empty-Result Ambiguity, the first defect
 class this tool exists to hunt. **v1.0.0 committed it** — seventeen probes ended in `|| true` and
 physically could not report failure, so a scan of a tree it could not read came back "clean". The
-`|| true` suffixes are gone and the test suite now pins every status — see below — but the fix is
-partial: three probes still discard stderr in-command. The `stderr` column and the `TRUNCATED`
-note apply the same principle: a partial read must not pass as a complete one.
+`|| true` suffixes are gone, every probe runs with `pipefail` so a failing producer is a failing
+probe, and none discards its stderr. The `stderr` column and the `TRUNCATED` note apply the same
+principle: a partial read must not pass as a complete one. What it still cannot promise is listed
+under *What probe.sh does not guarantee* in `SKILL.md`.
 
 The bundle is evidence, not findings. It tells you a port is published; whether that matters is a
 judgment, and judgment is what the skill is for.
@@ -102,20 +111,34 @@ nothing at all. No network, no docker, no fixtures outside a temp dir.
 **A green run was not proof in v1.2.0**, and the evidence that it is now is mutation, not the pass
 count. Against v1.2.0, four of eleven deliberate breakages left the suite all-pass: deleting the
 `TRUNCATED` flag, the bundle-reuse clearing, the `error` status, or the `output` status. The suite
-was rebuilt around those, and each of sixteen mutations of `probe.sh` fails at least one
-test:
+was rebuilt around those, and each of 35 mutations of `probe.sh` fails at least one of its 52 tests,
+in every case the test aimed at that behaviour:
 
 ```
-the original eleven   TRUNCATED block · out/ clearing · error status · output status · git detection
-                      host-container gate · empty status · placeholder filter · stderr column
-                      stderr note · per-probe ok_exits
-five added            -o marker guard · --timeout validation · npm failure-content check
-                      shell test-file glob · TRUNCATED only at the cap
+status contract  TRUNCATED flag · no flag under the cap · no flag exactly at it · complete output kept
+                 out/ clearing · error · output · empty · per-probe ok_exits · stderr column
+                 stderr note · npm failure-content check · TIMED OUT status
+safety           -o marker guard · --timeout validation · host-container gate
+exit status      pipefail · find accepting exit 1 · `ls … 2>/dev/null` for license files
+                 dockerfile-fetches via xargs · shell syntax via xargs · shellcheck and php -l exit mapping
+collection       git detection · placeholder filter · root-anchored prune · largest-files split on spaces
+                 file-count by newline · secret-scan file types · secret-scan empty note
+                 include globs expanded in the caller's directory · shell test-file glob
+reporting        env.txt effective timeout · timeout via eval · usage by line number
 ```
 
-`output` and the npm case use stub binaries put first on `PATH`; `error` uses a commitless repository.
-What the suite still does not reach: a real `timeout` wrapping a probe (stock macOS has no `timeout`
-binary), the four scanners with no failure-content check, and the three probes that discard stderr.
+Writing the tests found two defects the mutation list did not anticipate: the include globs expanded
+against whatever directory `probe.sh` was launched from — run beside a `CLAUDE.md`, the scan read that
+file instead of every `.md` — and BSD `xargs` reports a checker's findings as exit 1, the same as an
+unreadable tree. Both are fixed and both are in the list above.
+
+`output`, npm, docker, `timeout`, `php` and `shellcheck` are stub binaries put first on `PATH`;
+`error` uses a commitless repository. The suite does not reach real GNU `timeout`, real `php` or
+`shellcheck`, or the five scanners with no failure-content check. The first three were checked by hand
+at 1.3.0 in a Debian container (php 8.3.33, shellcheck 0.10.0, GNU coreutils 9.7, non-root): parse
+errors and lint findings file `ok`, clean trees `empty`, an unreadable directory `error`, and a hung
+probe `TIMED OUT` at exit 124. The suite itself also passes there, 51 of 51 with the macOS-only
+no-timeout test skipped.
 
 `${CLAUDE_PLUGIN_ROOT}` resolves to this plugin's installed copy under `~/.claude/plugins/cache/`.
 Editing this repo does not change what a running session loads — run

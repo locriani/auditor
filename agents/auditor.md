@@ -23,7 +23,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/codebase-audit/scripts/probe.sh <target> -o <b
 else, so it cannot clobber a project's own `out/`. `--host-containers` opts in to inspecting running
 containers — off by default, because a `Dockerfile` in the target is not consent to enumerate the
 machine. `--timeout N` is whole seconds per probe, default 120; it only takes effect where a `timeout`
-or `gtimeout` binary exists, which stock macOS lacks.
+or `gtimeout` binary exists, which stock macOS lacks, and the `timeout:` line in `env.txt` says which
+happened.
 
 **The status column is the collector's opinion; the bytes and the output file are the facts. Where
 they disagree, the column is wrong.** Read the manifest as an index of where to look, never as a
@@ -45,8 +46,9 @@ check that area's rows for all of these:
 
 - `status` is `error`, or `bytes > 0` on a row you were about to dismiss
 - `stderr` is `yes` — the probe hit something it could not read
-- the note begins `TRUNCATED` — you are looking at a sample, not the population
+- the note begins `TRUNCATED` — you are looking at a sample; the population is in `out/<probe>.full.txt`
 - the output file's content contradicts its status — open it
+- the probe is listed under *What probe.sh does not guarantee* in SKILL.md
 
 A probe marked `error` means you know nothing about that area. Do not let a later inference quietly
 assume it was clean.
@@ -97,7 +99,12 @@ it would take.
 ## Grading
 
 Severity comes from the matrix in SKILL.md. Name the cell in the finding so a reader can argue with
-your inputs rather than your verdict, and apply the SILENT bump where detectability warrants it.
+your inputs rather than your verdict, and apply the SILENT bump where detectability warrants it. You
+may decline the bump; when you do, say why in the Severity line. Keep "nobody would notice" out of
+Impact — that is the bump's argument, and using it twice moves the finding two levels.
+
+On a re-audit, fill `Delta` for every finding. A remediation that moved a defect rather than removing
+it is `relocated`, and saying so is the most useful line in a re-audit.
 
 Be honest about `Confidence`. The pressure to round `Probable` up to `Confirmed` is real and it is the
 failure that costs most under questioning. A finding labelled `Unverified` with a note on what would

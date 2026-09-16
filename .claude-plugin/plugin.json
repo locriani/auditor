@@ -1,7 +1,7 @@
 {
   "name": "codebase-audit",
   "description": "Skill: audit a codebase you did not write and are about to build on — run it before you read it, cite evidence or drop the finding, and hunt the defects whose exit status says success.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": {
     "name": "Zach Gardner",
     "email": "locriani@gmail.com"
