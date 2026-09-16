@@ -60,8 +60,8 @@ signal findings that way, and discarding it throws away the best evidence in the
 Collapsing `empty` and `error` into one silent outcome is Empty-Result Ambiguity, the first defect
 class this tool exists to hunt. **v1.0.0 committed it** — seventeen probes ended in `|| true` and
 physically could not report failure, so a scan of a tree it could not read came back "clean". The
-`|| true` suffixes are gone, but the fix is partial: three probes still discard stderr in-command, and
-the test suite does not pin `error` or `output` — see below. The `stderr` column and the `TRUNCATED`
+`|| true` suffixes are gone and the test suite now pins every status — see below — but the fix is
+partial: three probes still discard stderr in-command. The `stderr` column and the `TRUNCATED`
 note apply the same principle: a partial read must not pass as a complete one.
 
 The bundle is evidence, not findings. It tells you a port is published; whether that matters is a
@@ -99,11 +99,23 @@ The tests target the classification contract, because that is where a wrong answ
 confident false negative: a reader acts on `empty` by writing "no X found" and on `error` by writing
 nothing at all. No network, no docker, no fixtures outside a temp dir.
 
-**Known gap — do not read a green run as proof.** Mutation testing against v1.2.0 found four
-behaviours the suite does not constrain: deleting the `TRUNCATED` flag, the bundle-reuse clearing, the
-`error` status, or the `output` status each leaves it at all-pass. The suite catches regressions in
-`n/a`, `empty`, `ok`, git detection, host-container gating, and the stderr column; it does not yet
-catch regressions in those four.
+**A green run was not proof in v1.2.0**, and the evidence that it is now is mutation, not the pass
+count. Against v1.2.0, four of eleven deliberate breakages left the suite all-pass: deleting the
+`TRUNCATED` flag, the bundle-reuse clearing, the `error` status, or the `output` status. The suite
+was rebuilt around those, and each of sixteen mutations of `probe.sh` fails at least one
+test:
+
+```
+the original eleven   TRUNCATED block · out/ clearing · error status · output status · git detection
+                      host-container gate · empty status · placeholder filter · stderr column
+                      stderr note · per-probe ok_exits
+five added            -o marker guard · --timeout validation · npm failure-content check
+                      shell test-file glob · TRUNCATED only at the cap
+```
+
+`output` and the npm case use stub binaries put first on `PATH`; `error` uses a commitless repository.
+What the suite still does not reach: a real `timeout` wrapping a probe (stock macOS has no `timeout`
+binary), the four scanners with no failure-content check, and the three probes that discard stderr.
 
 `${CLAUDE_PLUGIN_ROOT}` resolves to this plugin's installed copy under `~/.claude/plugins/cache/`.
 Editing this repo does not change what a running session loads — run

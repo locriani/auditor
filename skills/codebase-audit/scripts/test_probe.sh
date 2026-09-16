@@ -26,6 +26,23 @@ run() { # run <target> [extra args...] -> echoes manifest path
   echo "$_b/manifest.tsv"
 }
 
+# Stub tools, put first on PATH only where a test names them. They stand in for
+# a scanner's failure modes without the network or the real toolchain.
+STUB="$TMP/stubbin"; mkdir -p "$STUB"
+cat > "$STUB/cargo" <<'STUBEOF'
+#!/bin/sh
+echo "Crate: fakecrate  ID: RUSTSEC-0000-0000"
+exit 7
+STUBEOF
+cat > "$STUB/npm" <<'STUBEOF'
+#!/bin/sh
+case "$1" in
+  audit) printf '{\n  "error": {\n    "code": "ENOLOCK",\n    "summary": "This command requires an existing lockfile."\n  }\n}\n'; exit 1 ;;
+  *) echo '{}'; exit 0 ;;
+esac
+STUBEOF
+chmod +x "$STUB/cargo" "$STUB/npm"
+
 echo "probe.sh classification tests"
 echo
 
@@ -93,13 +110,22 @@ M=$(run "$TMP/dock")
 # --- truncation must be visible ---------------------------------------------
 echo
 echo "truncation"
+# lang-census caps at 20 lines. 25 distinct extensions must be flagged. v1.2.0's
+# assertion had an `||` limb its own fixture always satisfied, so deleting the
+# TRUNCATED block left it green.
 mkdir -p "$TMP/many"
-i=0; while [ $i -lt 40 ]; do printf 'x\n' > "$TMP/many/f$i.aaa"; i=$((i+1)); done
+for e in a b c d e f g h i j k l m n o p q r s t u v w x y; do printf 'x\n' > "$TMP/many/f.x$e"; done
 M=$(run "$TMP/many")
-[ -n "$(awk -F'\t' 'NR>1 && $9 ~ /^TRUNCATED/' "$M")" ] || \
-  [ "$(field "$M" lang-census 6)" -lt 20 ] \
-  && ok "output at the line cap is flagged TRUNCATED" \
-  || bad "output at the line cap is flagged TRUNCATED" "TRUNCATED note" "none"
+case "$(note_of "$M" lang-census)" in
+  TRUNCATED*) ok "output at the line cap is flagged TRUNCATED" ;;
+  *) bad "output at the line cap is flagged TRUNCATED" "note starting TRUNCATED" "$(note_of "$M" lang-census)" ;;
+esac
+mkdir -p "$TMP/few"; printf 'x\n' > "$TMP/few/a.xa"; printf 'x\n' > "$TMP/few/b.xb"
+M=$(run "$TMP/few")
+case "$(note_of "$M" lang-census)" in
+  TRUNCATED*) bad "output under the cap is not flagged" "no TRUNCATED" "$(note_of "$M" lang-census)" ;;
+  *) ok "output under the cap is not flagged" ;;
+esac
 
 # --- awkward paths ----------------------------------------------------------
 echo
@@ -117,12 +143,34 @@ bash "$PROBE" "$TMP/q" -o "$TMP/b-q" >/dev/null 2>&1
 # --- bundle hygiene ---------------------------------------------------------
 echo
 echo "bundle hygiene"
-mkdir -p "$TMP/r1" "$TMP/r2"; printf 'password: zzzzzzzzzzzz\n' > "$TMP/r1/c.yml"
-bash "$PROBE" "$TMP/r1" -o "$TMP/b-reuse" >/dev/null 2>&1
+# The second target has no package.json, so npm-manifest never runs on it. Only
+# clearing out/ can remove the first run's copy. v1.2.0 checked secret-scan.txt,
+# which probe() rewrites with `>` either way, so removing the clear left it green.
+mkdir -p "$TMP/r1" "$TMP/r2"; printf '{"name":"first-target"}\n' > "$TMP/r1/package.json"
+PATH="$STUB:$PATH" bash "$PROBE" "$TMP/r1" -o "$TMP/b-reuse" >/dev/null 2>&1
+[ -s "$TMP/b-reuse/out/npm-manifest.txt" ] \
+  && ok "fixture: first run wrote npm-manifest.txt" \
+  || bad "fixture: first run wrote npm-manifest.txt" "non-empty file" "missing"
 bash "$PROBE" "$TMP/r2" -o "$TMP/b-reuse" >/dev/null 2>&1
-[ ! -s "$TMP/b-reuse/out/secret-scan.txt" ] \
+[ ! -e "$TMP/b-reuse/out/npm-manifest.txt" ] \
   && ok "a reused bundle does not retain the previous target's evidence" \
-  || bad "a reused bundle does not retain the previous target's evidence" "empty" "stale content"
+  || bad "a reused bundle does not retain the previous target's evidence" "no out/npm-manifest.txt" "$(head -c 60 "$TMP/b-reuse/out/npm-manifest.txt")"
+
+# -o must never clear a directory probe.sh did not create. v1.2.0 ran rm -rf on
+# any out/ it found.
+mkdir -p "$TMP/victim/out"; printf 'keep me\n' > "$TMP/victim/out/user-data.txt"
+bash "$PROBE" "$TMP/plain" -o "$TMP/victim" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 2 ] && [ -f "$TMP/victim/out/user-data.txt" ] \
+  && ok "an unmarked non-empty -o directory is refused and left intact" \
+  || bad "an unmarked non-empty -o directory is refused and left intact" "exit 2, file kept" "exit $RC, file $([ -f "$TMP/victim/out/user-data.txt" ] && echo kept || echo GONE)"
+
+# --timeout is interpolated into eval; anything but digits must be rejected
+# before a single probe runs.
+PWN="$TMP/pwned"
+bash "$PROBE" "$TMP/plain" -o "$TMP/b-inj" --timeout "1; touch $PWN" >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 2 ] && [ ! -e "$PWN" ] && [ ! -e "$TMP/b-inj" ] \
+  && ok "a non-numeric --timeout is rejected before anything runs" \
+  || bad "a non-numeric --timeout is rejected before anything runs" "exit 2, nothing created" "exit $RC, pwned=$([ -e "$PWN" ] && echo yes || echo no), bundle=$([ -e "$TMP/b-inj" ] && echo yes || echo no)"
 
 M="$TMP/b-reuse/manifest.tsv"
 [ "$(head -1 "$M" | awk -F'\t' '{print NF}')" -eq 9 ] \
@@ -131,6 +179,45 @@ M="$TMP/b-reuse/manifest.tsv"
 
 BAD=$(awk -F'\t' 'NR>1 && NF!=9 {print $1}' "$M" | tr '\n' ' ')
 [ -z "$BAD" ] && ok "every manifest row has 9 columns" || bad "every manifest row has 9 columns" "all 9" "$BAD"
+
+# --- the statuses a clean fixture never reaches -----------------------------
+# Every fixture above runs tools that succeed, so none of them can tell `error`
+# from `empty` or `output` from `error`. These build probes that fail on purpose.
+echo
+echo "failure statuses"
+
+mkdir -p "$TMP/crate"; printf '[package]\nname = "x"\n' > "$TMP/crate/Cargo.toml"
+M=$(PATH="$STUB:$PATH" run "$TMP/crate")
+[ "$(status_of "$M" cargo-audit)" = "output" ] \
+  && ok "nonzero exit outside ok_exits WITH stdout classifies as output" \
+  || bad "nonzero exit outside ok_exits WITH stdout classifies as output" output "$(status_of "$M" cargo-audit)"
+
+# npm audit exits 1 both when it finds vulnerabilities and when it cannot audit.
+mkdir -p "$TMP/nolock"; printf '{"name":"x","version":"1.0.0"}\n' > "$TMP/nolock/package.json"
+M=$(PATH="$STUB:$PATH" run "$TMP/nolock")
+[ "$(status_of "$M" npm-audit)" = "error" ] \
+  && ok "npm audit reporting ENOLOCK classifies as error, not ok" \
+  || bad "npm audit reporting ENOLOCK classifies as error, not ok" error "$(status_of "$M" npm-audit)"
+
+if command -v git >/dev/null 2>&1; then
+  # A repo with no commits: git rev-list --count HEAD exits 128 with no stdout.
+  mkdir -p "$TMP/nocommit"; ( cd "$TMP/nocommit" && git init -q ) >/dev/null 2>&1
+  M=$(run "$TMP/nocommit")
+  [ "$(status_of "$M" git-commit-count)" = "error" ] \
+    && ok "a probe that could not run classifies as error, not empty" \
+    || bad "a probe that could not run classifies as error, not empty" error "$(status_of "$M" git-commit-count)"
+else
+  echo "  skip  error-status test — git not installed"
+fi
+
+# --- testing axis -----------------------------------------------------------
+echo
+echo "test discovery"
+mkdir -p "$TMP/shtests"; : > "$TMP/shtests/test_one.sh"; : > "$TMP/shtests/two_test.sh"
+M=$(run "$TMP/shtests")
+[ "$(cat "$(dirname "$M")/out/test-file-count.txt")" = "2" ] \
+  && ok "shell test files are counted" \
+  || bad "shell test files are counted" 2 "$(cat "$(dirname "$M")/out/test-file-count.txt")"
 
 # --- git scope --------------------------------------------------------------
 echo

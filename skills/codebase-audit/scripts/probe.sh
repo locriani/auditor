@@ -13,10 +13,11 @@
 #   output  exited nonzero AND produced output — READ IT. Vulnerability scanners
 #           signal findings this way; discarding it throws away the best evidence.
 #
-# "empty" and "error" are never the same value, and a probe that cannot fail is
-# never reported as clean. Collapsing those is Empty-Result Ambiguity — the first
-# defect class this tool exists to hunt, and one this script committed in v1.0.0
-# by suffixing 17 probes with `|| true`.
+# "empty" and "error" are meant never to be the same value. Collapsing them is
+# Empty-Result Ambiguity — the first defect class this tool exists to hunt, and
+# one this script committed in v1.0.0 by suffixing 17 probes with `|| true`. Not
+# yet fully kept: three probes discard stderr in-command and can report `empty`
+# on a tree they could not read.
 #
 # Exit codes: 0 the run completed (findings are not failures)
 #             2 usage error, or the target does not exist
@@ -87,19 +88,24 @@ if [ -n "$PTIMEOUT" ] && [ "$PTIMEOUT" != "0" ]; then
   fi
 fi
 
-# probe <name> <axis> <cmd> [ok_exits] [cap]
+# probe <name> <axis> <cmd> [ok_exits] [cap] [failed_if]
 #
 # ok_exits  space-separated exit codes that mean "ran correctly" (default "0").
 #           grep and friends exit 1 for "no match", which is a RESULT, not a
 #           failure — those probes pass "0 1".
 # cap       the `head -N` limit inside cmd, if any. Output landing exactly on the
 #           cap is flagged truncated, because a silently clipped list reads as a
-#           complete one.
+#           complete one. Pass '' when failed_if is needed without a cap.
+# failed_if an extended regex that, found anywhere in the output, means the tool
+#           reported it could not run. For tools whose "found something" exit is
+#           also their "could not start" exit, the exit status cannot separate
+#           the two and only the content can. v1.2.0 filed `npm audit` failing
+#           with ENOLOCK as `ok`, beside real audit results.
 #
 # pipefail is deliberately OFF inside the probe: these are pipelines ending in
 # head/wc, and SIGPIPE from head made complete, valid output report as exit 141.
 probe() {
-  _name="$1"; _axis="$2"; _cmd="$3"; _ok="${4:-0}"; _cap="${5:-}"
+  _name="$1"; _axis="$2"; _cmd="$3"; _ok="${4:-0}"; _cap="${5:-}"; _failpat="${6:-}"
   _out="$BUNDLE/out/$_name.txt"; _err="$BUNDLE/out/$_name.err"; _rc=0
   ( cd "$TARGET" && set +o pipefail && eval "$TIMEOUT_CMD $_cmd" ) >"$_out" 2>"$_err" || _rc=$?
   _bytes=$(wc -c < "$_out" | tr -d ' ')
@@ -109,7 +115,10 @@ probe() {
   _expected=0
   for _c in $_ok; do [ "$_rc" = "$_c" ] && _expected=1; done
 
-  if [ "$_expected" -eq 1 ]; then
+  if [ -n "$_failpat" ] && grep -qE "$_failpat" "$_out"; then
+    _status="error"
+    _note="exited $_rc; output says the tool did not run ($(grep -oE "$_failpat" "$_out" | head -1 | tr '\t' ' ' | cut -c1-80)) — out/$_name.txt holds its error, not results"
+  elif [ "$_expected" -eq 1 ]; then
     if [ "$_bytes" -eq 0 ]; then
       _status="empty"; _note="ran clean, produced no output"
     else
@@ -196,7 +205,9 @@ fi
 if exists package.json; then DEPS=1
   probe npm-manifest supply-chain 'cat package.json'
   # npm audit exits 1 when it FINDS vulnerabilities. That is the finding.
-  if has npm; then probe npm-audit supply-chain 'npm audit --json' '0 1'
+  # It also exits 1 when it cannot audit at all (ENOLOCK: no lockfile), and
+  # prints a JSON error object to stdout — so the content decides, not the exit.
+  if has npm; then probe npm-audit supply-chain 'npm audit --json' '0 1' '' '"code"[[:space:]]*:[[:space:]]*"E[A-Z0-9]+"'
   else skip npm-audit supply-chain "package.json present but npm not on PATH"; fi
 fi
 if exists requirements.txt || exists pyproject.toml; then DEPS=1
@@ -279,7 +290,7 @@ fi
 probe test-inventory testing \
   "find . -type d \\( -name test -o -name tests -o -name spec -o -name __tests__ \\) $PRUNE | head -20" '0 1' 20
 probe test-file-count testing \
-  "find . -type f \\( -name '*test*.php' -o -name '*_test.go' -o -name '*.test.js' -o -name '*.test.ts' -o -name 'test_*.py' -o -name '*_spec.rb' \\) $PRUNE | wc -l | tr -d ' '"
+  "find . -type f \\( -name '*test*.php' -o -name '*_test.go' -o -name '*.test.js' -o -name '*.test.ts' -o -name 'test_*.py' -o -name '*_spec.rb' -o -name 'test_*.sh' -o -name '*_test.sh' \\) $PRUNE | wc -l | tr -d ' '"
 probe ci-config testing 'ls -1 .github/workflows/ .gitlab-ci.yml .circleci/ Jenkinsfile .travis.yml azure-pipelines.yml 2>/dev/null' '0 1 2'
 probe ci-badges testing \
   "grep -rhoE '!\\[[^]]*\\]\\(https://[^)]*(badge|shield|workflow|actions)[^)]*\\)' --include='*.md' $GREP_EX . | head -20" '0 1' 20
