@@ -68,8 +68,9 @@ Six rows from a real run, without `--run-toolchains`, against a small Node repos
 Dockerfile uses `FROM node:latest`; long notes are cut at `…`.
 Nine columns: `stderr` says the probe wrote to stderr (`out/<probe>.err`), and `lines` over a probe's
 cap adds a `TRUNCATED` note with the complete output in `out/<probe>.full.txt`. `env.txt` records
-the target, host, git scope, the file types `secret-scan` read, whether toolchains ran, and whether a
-timeout was actually enforced.
+the target, host, git scope, the file types `secret-scan` read, whether toolchains ran, whether a
+timeout was actually enforced, and `checker jobs`: how many `php -l` processes ran at once (one per
+CPU, at least 4). Run one at a time, `php -l` over 4,607 files ran past the 120-second cap.
 
 **The five statuses are the point.** `empty` means the probe ran and found nothing — a result, and
 sometimes a finding. `error` means it could not run, so you know nothing about that area. `n/a` means
@@ -125,7 +126,7 @@ nothing at all. They also pin execution and exposure (no toolchain runs without 
 config command runs, the bundle is private and outside the target) and give every probe a fixture with
 something to find. No network, no docker, no fixtures outside a temp dir.
 
-**A green run is not the evidence; mutation is.** `dev/mutations.py` lists 153 literal breakages of
+**A green run is not the evidence; mutation is.** `dev/mutations.py` lists 156 literal breakages of
 `probe.sh`: the v1.3.0 self-audit's 58 re-based onto the current text, one for each fix made since, and
 one per probe that replaces its command with `true`. `bash dev/run_mutations.sh` runs the suite against
 each (python3 required; `-j` sets parallelism, and IDs restrict the run) and exits 1 on any survivor
@@ -133,17 +134,24 @@ that is not listed as equivalent or inapplicable on the host. Each run puts a st
 and docker first on `PATH`, so a mutant that removes a gate cannot run a real toolchain or reach this
 machine's containers.
 
-**The full run has not been completed for 1.4.1**: 153 suites take about four hours on one Mac. What
+**The full run has not been completed for 1.4.x**: 156 suites take about four hours on one Mac. What
 was measured, on macOS: the first 16 mutants in list order (m01–m16), where the suite before these
 tests let 7 non-equivalent mutants survive, now 15 killed and 1 equivalent (m09); and 18 mutants aimed
 at the v1.3.0 audit's surviving neighbours and at the new tests (m20, m21, m23, m25, m26, m28–m30,
 m36, m39, m42, m55, n11, n24, n32, and `s-git-tags`, `s-published-ports`, `s-route-tables`), all
-killed after one fixture fix for m23. Run `bash dev/run_mutations.sh` before citing any number beyond
-those.
+killed after one fixture fix for m23; and, for parallel `php-syntax`, n39 (one file at a time), n40
+(filenames newline-delimited through `xargs`), n41 (a wrapper that `eval`s the filename), m21 and m55
+again, all killed. Run `bash dev/run_mutations.sh` before citing any number beyond those.
 
-`test_probe.sh` passes 176 tests on macOS (1 skipped: needs root), 173 as non-root in Debian (4 skipped:
-branches that only run without a timeout binary or shellcheck) and 160 as root (5 skipped:
-permission fixtures root can read).
+Filenames reach `php -l` through `find -print0 | xargs -0` as `sh -c` arguments, never as shell text. A
+test sends ten hostile names through the real pipeline — space, both quotes, backslash, newline,
+leading `-`, `*`, `$(…)`, backticks, `;` — and checks each arrives whole, once, with nothing run, under
+BSD `xargs` on macOS and GNU `xargs` in Debian. A name containing a newline still splits php's one-line
+message, so the row can read `ok` with a stray line.
+
+`test_probe.sh` passes 179 tests on macOS (2 skipped: needs root; needs shellcheck absent), 176 as
+non-root in Debian (4 skipped: branches that only run without a timeout binary or shellcheck) and 163
+as root (5 skipped: permission fixtures root can read, and the same branches).
 
 Every scanner, php, shellcheck, docker and `timeout` in the suite is a stand-in, and a stand-in pins the
 classifier to the author's belief about the tool. Both Critical findings of the v1.3.0 self-audit sat

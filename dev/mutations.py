@@ -53,7 +53,7 @@ M = [
      'TARGET is resolved with cd -P before any probe; a target that cannot be entered exits the script there'),
     ('m19', 'timeout never wraps probes', [(r'TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEOUT"', r'TIMEOUT_PREFIX=""', 1)], '', ''),
     ('m20', '--timeout 0 still applies a binary', [(r'if [ "$PTIMEOUT" != "0" ]; then', r'if true; then', 1)], '', ''),
-    ('m21', 'empty --timeout accepted', [(r"''|*[!0-9]*)", r"*[!0-9]*)", 1)], '', ''),
+    ('m21', 'empty --timeout accepted', [(r'''''|*[!0-9]*) echo "invalid --timeout''', r'''*[!0-9]*) echo "invalid --timeout''', 1)], '', ''),
     ('m22', 'gtimeout never detected', [(r'elif command -v gtimeout ', r'elif command -v gtimeout-nope ', 1)], 'no-timeout', ''),
     ('m23', 'reuse clears only out/*.txt', [('  rm -rf "$BUNDLE/out"\n', '  rm -f "$BUNDLE"/out/*.txt\n', 1)], '', ''),
     ('m24', 'refusal exits 0', [('or new directory for -o." >&2\n    exit 2', 'or new directory for -o." >&2\n    exit 0', 1)], '', ''),
@@ -140,6 +140,9 @@ M = [
     ('n35c', 'Dockerfile instructions case-sensitive', [(r"grep -rHniE '(git clone", r"grep -rHnE '(git clone", 1)], '', ''),
     ('n36', 'gated rows filed n/a', [(r'''printf '%s\t%s\terror\t-\t0\t0\tno\t-\t%s\n' "$1" "$2"''', r'''printf '%s\t%s\tn/a\t-\t0\t0\tno\t-\t%s\n' "$1" "$2"''', 1)], '', ''),
     ('n37', 'env.txt does not record toolchains withheld', [(r'echo "toolchains: NOT RUN', r'echo "toolchains: run', 1)], '', ''),
+    ('n39', 'php-syntax checks one file at a time', [(r'xargs -0 -n 1 -P $JOBS sh -c', r'xargs -0 -n 1 -P 1 sh -c', 1)], '', ''),
+    ('n40', 'php filenames newline-delimited through xargs', [(r"-name '*.php' -print0 | xargs -0 -n 1", r"-name '*.php' -print | xargs -n 1", 1)], '', ''),
+    ('n41', 'php wrapper evaluates the filename as shell', [(r'''for f; do php -l \"\$f\" 2>&1;''', r'''for f; do eval php -l \$f 2>&1;''', 1)], '', ''),
     ('n38', 'git-staged compares the work tree, running filters', [(r'$GIT diff-index --cached --name-status HEAD', r'$GIT diff-index --name-status HEAD', 1)], '', ''),
 ]
 

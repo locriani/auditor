@@ -138,6 +138,12 @@ if [ "$PTIMEOUT" != "0" ]; then
 fi
 TIMEOUT_PREFIX=""; [ -z "$TIMEOUT_BIN" ] || TIMEOUT_PREFIX="$TIMEOUT_BIN $PTIMEOUT"
 
+# Per-file checkers run this many at once. php -l is one process per file, and run
+# serially over 4,607 files it ran past the 120-second cap.
+JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+case "$JOBS" in ''|*[!0-9]*) JOBS=4 ;; esac
+[ "$JOBS" -ge 4 ] || JOBS=4
+
 # probe <name> <axis> <cmd> [ok_exits] [cap] [valid_if] [empty_note]
 #
 # ok_exits   space-separated exit codes that mean "ran correctly" (default "0").
@@ -291,6 +297,7 @@ set -f; for _g in $SECRET_GLOBS; do SECRET_INC="$SECRET_INC --include='$_g'"; do
     echo "timeout:    NONE ENFORCED — ${PTIMEOUT}s requested, but neither timeout nor gtimeout is on PATH; probes ran unbounded"
   fi
   echo "secret-scan reads: $SECRET_GLOBS"
+  echo "checker jobs: $JOBS"
 } > "$BUNDLE/env.txt"
 
 # ---------------------------------------------------------------- provenance
@@ -440,14 +447,16 @@ probe lang-census code-quality \
   "find . $PRUNE -type f -name '*.*' -print | sed 's/.*\\.//' | sort | uniq -c | sort -rn" 0 20
 if exists composer.json && has php; then
   probe php-syntax code-quality \
-    "find . $PRUNE -name '*.php' -exec sh -c 'rc=0; for f; do php -l \"\$f\" 2>&1; case \$? in 0|255) ;; *) rc=1 ;; esac; done; exit \$rc' sh {} + | awk '!/^No syntax errors/'" 0 40
+    "find . $PRUNE -name '*.php' -print0 | xargs -0 -n 1 -P $JOBS sh -c 'rc=0; for f; do php -l \"\$f\" 2>&1; case \$? in 0|255) ;; *) rc=1 ;; esac; done; exit \$rc' sh | awk '!/^No syntax errors/'" 0 40
 else
   skip php-syntax code-quality "no composer.json, or php not on PATH"
 fi
 # Absence of shellcheck is a DOWNGRADE, not a clean result — say which ran.
 #
-# Checkers run inside `find -exec sh -c`, which maps "the checker found something"
-# (php -l 255, shellcheck 1, bash -n 2) to success and anything else to failure.
+# Checkers run inside `sh -c`, which maps "the checker found something" (php -l
+# 255, shellcheck 1, bash -n 2) to success and anything else to failure. php-syntax
+# fans that wrapper out with `xargs -P`; the wrapper never exits 255, which would
+# stop xargs, and any other failure leaves xargs nonzero, so the row is not `ok`.
 # v1.3.0's xargs could not: BSD xargs reports every nonzero child as 1, the same
 # exit as find failing to read a directory. Exit 1 from these probes now means
 # only the latter.

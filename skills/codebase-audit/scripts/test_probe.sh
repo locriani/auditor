@@ -430,6 +430,44 @@ M=$(PATH="$CSTUB:$PATH" run "$TMP/checkers")
   && ok "php unable to open a file is output, not ok" \
   || bad "php unable to open a file is output, not ok" output "$(status_of "$M" php-syntax)"
 rm -f "$TMP/checkers/unopenable.php"
+# php -l is one process per file. Serially, 4,607 files ran past a 120-second cap.
+# Eight files at one second each must finish inside five seconds.
+SPHP="$TMP/slowphp"; mkdir -p "$SPHP" "$TMP/manyphp"
+printf '#!/bin/sh\nsleep 1\necho "No syntax errors detected in $2"\n' > "$SPHP/php"; chmod +x "$SPHP/php"
+printf '{}\n' > "$TMP/manyphp/composer.json"
+for i in 1 2 3 4 5 6 7 8; do printf '<?php echo %s;\n' $i > "$TMP/manyphp/f$i.php"; done
+M=$(PATH="$SPHP:$TSTUB:$PATH" run "$TMP/manyphp" --timeout 5)
+[ "$(status_of "$M" php-syntax)" = "empty" ] \
+  && ok "php-syntax checks files in parallel, inside the timeout" \
+  || bad "php-syntax checks files in parallel, inside the timeout" "empty" "$(status_of "$M" php-syntax): $(note_of "$M" php-syntax)"
+# Filenames reach php through xargs. None may be split, unquoted or run as shell:
+# each must arrive as one argument naming a file that exists.
+HPHP="$TMP/hostilephp"; mkdir -p "$HPHP" "$TMP/hostnames"
+cat > "$HPHP/php" <<'STUBEOF'
+#!/bin/sh
+if [ -f "$2" ]; then echo intact >> "$PHPLOG"; else echo "broken: $2" >> "$PHPLOG"; fi
+echo "No syntax errors detected in $2"
+STUBEOF
+chmod +x "$HPHP/php"; printf '{}\n' > "$TMP/hostnames/composer.json"
+for n in 'sp ace.php' "q'uote.php" 'd"q.php' 'back\slash.php' '$(touch pwned-subst).php' ';touch pwned-semi;.php' '-dash.php' '*.php' '`touch pwned-tick`.php'; do
+  printf '<?php echo 1;\n' > "$TMP/hostnames/$n"
+done
+printf '<?php echo 1;\n' > "$TMP/hostnames/new
+line.php"
+PHPLOG="$TMP/phplog"; : > "$PHPLOG"; export PHPLOG
+M=$(PATH="$HPHP:$PATH" run "$TMP/hostnames")
+INTACT=$(grep -c '^intact$' "$PHPLOG"); BROKEN=$(grep -v '^intact$' "$PHPLOG" | tr '\n' '|')
+# A name holding a newline still splits php's own one-line message in two, so the
+# row can read ok with a stray line; that is display, not an escape.
+RAN=""; for f in pwned-subst pwned-semi pwned-tick; do [ ! -e "$TMP/hostnames/$f" ] || RAN="$RAN $f"; done
+case "$(status_of "$M" php-syntax)" in ok|empty) ST=fine ;; *) ST="$(status_of "$M" php-syntax)" ;; esac
+[ "$INTACT" = "10" ] && [ -z "$BROKEN" ] && [ -z "$RAN" ] && [ "$ST" = fine ] \
+  && ok "hostile php filenames reach php -l whole, once each, and run nothing" \
+  || bad "hostile php filenames reach php -l whole, once each, and run nothing" "10 intact, 0 broken, nothing run, ok or empty" "$INTACT intact; broken: $BROKEN; ran:$RAN; status $ST"
+unset PHPLOG
+grep -q '^checker jobs: *[0-9][0-9]*$' "$(dirname "$M")/env.txt" \
+  && ok "env.txt records how many checker processes ran at once" \
+  || bad "env.txt records how many checker processes ran at once" "checker jobs: N" "$(grep '^checker' "$(dirname "$M")/env.txt")"
 
 # --- pruning and awkward names in the size probes ---------------------------
 echo
