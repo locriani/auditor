@@ -1,0 +1,77 @@
+# Testing & Verifiability
+
+## Contents
+- The decisive question
+- Does CI measure this repository?
+- What the tests actually assert
+- Coverage is a map of intent
+- Silent-success patterns in this axis
+- What to measure
+
+## The decisive question
+
+**What would have to break for a test to notice?**
+
+Not "is there a test suite". Not "what is the coverage number". The question is whether the suite would fail if the system's important behaviour changed — and for a system you are about to build on, that is the question that determines whether you can refactor at all.
+
+## Does CI measure this repository?
+
+Check this before anything else, because a wrong answer here invalidates every other conclusion in the axis.
+
+The failure shape is specific and common in forks: the README carries status badges, the badges are green, and the badge URLs point at the **upstream** repository. Nothing in the fork is tested; the badge reports someone else's build. `probe.sh` collects both halves — `ci-config` for what exists, `ci-badges` for what is claimed — and the finding lives in the gap between them.
+
+```sh
+# what CI exists here
+ls .github/workflows/ .gitlab-ci.yml .circleci/ Jenkinsfile 2>/dev/null
+# what the README claims — read the URLs, not the images
+grep -ohE '!\[[^]]*\]\(https://[^)]*(badge|shield|workflow|actions)[^)]*\)' *.md
+```
+
+Three separate questions, each with its own answer:
+
+1. **Does CI exist for this repo?** Files present, or not.
+2. **Does it run?** A workflow file that no event triggers is decoration.
+3. **Does failure block anything?** A required status check on protected branches, or a job that reports and is ignored. A suite nobody is obliged to keep green goes red and stays red.
+
+The third is where most projects actually fail, and it is invisible from the repository alone — it lives in branch protection settings. If you cannot see them, say so and mark the finding `Unverified`.
+
+## What the tests actually assert
+
+Read a sample of tests, not just their names. Look for the shapes that pass regardless:
+
+```
+assert(true)                         a placeholder nobody removed
+assertNotNull(result)                passes for almost any bug
+mock everything, assert the mock     tests the mock, not the system
+snapshot with no review              records current behaviour, including current bugs
+no assertion at all                  passes unless the code throws
+```
+
+A test that cannot fail is worse than a missing test, because it occupies the slot where a real one would go and reports success while doing it. That is the silent-success class applied to the safety net itself.
+
+Also note what has **no** test: the paths through which data enters the system, the authorization primitive, and anything handling money, identity, or clinical fact. Absence there is a finding regardless of the aggregate number.
+
+## Coverage is a map of intent
+
+Where a coverage tool is configured, read the report as a map of what the authors cared about rather than as a score. A number on its own is nearly meaningless — 80% coverage concentrated in getters and absent from the payment path is worse than 40% concentrated in the payment path.
+
+Where no coverage tooling exists, do not install one and generate a number: that is new work, it will take longer than it looks, and the number will not survive scrutiny. Report the tooling gap instead, and count test files against source files as a crude ratio with the caveat attached.
+
+## Silent-success patterns in this axis
+
+| Pattern | How it shows up |
+|---|---|
+| Unchecked Output | the suite runs, reports pass, and asserts nothing meaningful |
+| Missing Expected Metrics | a CI job silently stops triggering; nobody notices the absence |
+| Success Codes on Failed Work | a test runner exits 0 when zero tests were collected |
+
+The last one is worth a direct probe, because it is easy to check and catches a genuinely dangerous configuration: run the suite with a filter that matches nothing and look at the exit code. A runner that exits 0 on zero collected tests will report success after a refactor silently orphans the entire suite.
+
+## What to measure
+
+- Whether CI configuration exists in *this* repository.
+- Whether badge URLs point here or upstream.
+- Whether a failing run blocks a merge.
+- Test count against source count, with the caveat stated.
+- A read sample of tests, looking for assertions that cannot fail.
+- Exit code of the runner when zero tests are collected.
