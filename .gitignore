@@ -1,0 +1,19 @@
+.DS_Store
+*.bak.*
+*.swp
+*.swo
+*~
+
+# Per-machine Claude Code session state. Not .claude-plugin/, which is the tracked manifest.
+/.claude/
+
+# Python
+__pycache__/
+*.pyc
+/.venv
+.ruff_cache/
+.pytest_cache/
+
+# Probe bundles must never be committed: they are collected from a target and
+# can carry that target's contents.
+/bundles/

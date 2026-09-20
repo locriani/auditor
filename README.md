@@ -1,7 +1,10 @@
-# codebase-audit
+# auditor
 
-A Claude Code skill for auditing a codebase you did not write and are about to build on, plus a
-one-pass probe script that collects the evidence so nine axes do not re-derive the same twelve facts.
+A Claude Code plugin for auditing a codebase you did not write and are about to build on: the
+`auditor` agent, the `codebase-audit` skill, and a one-pass probe script that collects the evidence
+so nine axes do not re-derive the same twelve facts.
+
+The name is provisional.
 
 ## Why
 
@@ -22,14 +25,14 @@ not audited — across nine axes, with severity derived from a published matrix 
 ## Install
 
 ```sh
-claude plugin marketplace add locriani/ai-additions
-claude plugin install codebase-audit@ai-additions
+claude plugin marketplace add ~/Developer/auditor
+claude plugin install auditor@auditor
 ```
 
 Plugin skills only surface in **new** Claude Code sessions, so quit and reopen after installing.
 
 ```sh
-claude plugin list        # codebase-audit@ai-additions, enabled
+claude plugin list        # auditor@auditor, enabled
 ```
 
 No external dependencies. `probe.sh` is bash 3.2 compatible and uses whatever is already on the
@@ -171,7 +174,7 @@ where that belief was wrong, so the real tools were run by hand for 1.4.0, in De
 
 `${CLAUDE_PLUGIN_ROOT}` resolves to this plugin's installed copy under `~/.claude/plugins/cache/`.
 Editing this repo does not change what a running session loads — run
-`claude plugin marketplace update ai-additions` and reinstall to pick changes up.
+`claude plugin marketplace update auditor` and reinstall to pick changes up.
 
 ## The nine axes
 
