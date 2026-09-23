@@ -12,15 +12,16 @@ marketplace, and plugin id all say `auditor`; the skill keeps its functional nam
 - **Operate the system, cite what it did, name what each finding forbids.** The skill's own
   rule, and it governs this repo's development too: a claim about the probe is checked by
   running the probe, not by reading it.
-- **The target is untrusted.** `probe.sh` never executes configuration the target ships
+- **The target is untrusted.** `auditor-probe` never executes configuration the target ships
   unless `--run-toolchains` says so, and never enumerates the host unless `--host-containers`
   does. A change that widens either default is a behaviour change, not a fix.
 - **Exit status is not a verdict.** The silent-success class is what this tool hunts, so it
   is also the bug class most likely to be in the tool. `dev/mutations.py` exists to prove the
   tests fail when the code is wrong.
-- **No shell scripts** for anything new — Python or another real language. `scripts/probe.sh`,
-  `scripts/test_probe.sh`, and `dev/run_mutations.sh` predate the rule and are carried, not
-  extended.
+- **No shell scripts.** Auditor is a Python 3.11+ project managed with `uv`, strictly typed with
+  `mypy`, formatted/linted with `ruff`, and tested with `pytest`. Run `uv run auditor-probe` for
+  evidence collection, `uv run pytest` for tests, and `uv run python dev/mutations.py run` for
+  mutation testing.
 - **Referenced from `~/Developer/ai-additions`** (`SETUP-LIST.md`, Referenced table). That
   repo's approval gate governs enabling; this one holds the code.
 

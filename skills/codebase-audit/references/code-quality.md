@@ -27,7 +27,7 @@ A project with no declared standard is the more interesting result. It means sty
 
 ## Audit against the declared standard
 
-1. Find the declaration. `probe.sh` lists the usual files in `lint-config`: `.editorconfig`, `.eslintrc*`, `phpcs.xml`, `psalm.xml`, `phpstan.neon`, `ruff.toml`, `.golangci.yml`, `.rubocop.yml`, and friends.
+1. Find the declaration. `auditor-probe` lists the usual files in `lint-config`: `.editorconfig`, `.eslintrc*`, `phpcs.xml`, `psalm.xml`, `phpstan.neon`, `ruff.toml`, `.golangci.yml`, `.rubocop.yml`, and friends.
 2. Check whether it is *enforced* or merely present. A linter config with no CI job and no pre-commit hook is an aspiration. That gap is itself the finding.
 3. Run it as configured. Report the delta, not the absolute count.
 4. Check whether the config has been weakened over time — rules disabled, files excluded, severities lowered. A shrinking standard is a trend worth naming.
@@ -72,7 +72,7 @@ if err != nil { }                 checked and discarded, in Go
 .catch(() => null)                a rejected promise becomes a null value
 ```
 
-`probe.sh` greps for the empty-catch shape in `swallowed-exceptions`. Treat its output as candidates, not findings — read each one, because a deliberately empty catch with a comment explaining why is fine, and an identical one without is a defect. The distinction is the comment, and that is a judgment the grep cannot make.
+`auditor-probe` greps for the empty-catch shape in `swallowed-exceptions`. Treat its output as candidates, not findings — read each one, because a deliberately empty catch with a comment explaining why is fine, and an identical one without is a defect. The distinction is the comment, and that is a judgment the grep cannot make.
 
 ## Silent-success patterns in this axis
 
