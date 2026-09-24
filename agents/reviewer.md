@@ -64,7 +64,7 @@ coordinator named in the block. If that fails, fall back to the coordinator's ma
 
 ```sh
 python3 <chief-of-stuff plugin root>/scripts/inbox.py send --to coordinator --from reviewer \
-  --type review --lane "<lane>" --body "$(cat <scratch>/report-N.md)"
+  --type review --task "<task>" --body "$(cat <scratch>/report-N.md)"
 ```
 
 The chief-of-stuff plugin root is the newest `~/.claude/plugins/cache/chief-of-stuff/chief-of-stuff/*/`.
