@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from conftest import RunProbe
+
 
 def init_git_repo(target: Path) -> None:
     subprocess.run(["git", "init", "-b", "main"], cwd=target, check=True, capture_output=True)
@@ -17,7 +19,7 @@ def init_git_repo(target: Path) -> None:
     )
 
 
-def test_git_repo_root_detection(temp_target: Path, run_probe) -> None:
+def test_git_repo_root_detection(temp_target: Path, run_probe: RunProbe) -> None:
     init_git_repo(temp_target)
 
     manifest = run_probe(temp_target)
@@ -32,7 +34,7 @@ def test_git_repo_root_detection(temp_target: Path, run_probe) -> None:
     assert "target-supplied toolchain config can execute code" in manifest.note("git-status")
 
 
-def test_git_status_runs_with_toolchains(temp_target: Path, run_probe) -> None:
+def test_git_status_runs_with_toolchains(temp_target: Path, run_probe: RunProbe) -> None:
     init_git_repo(temp_target)
 
     manifest = run_probe(temp_target, "--run-toolchains")
@@ -40,7 +42,7 @@ def test_git_status_runs_with_toolchains(temp_target: Path, run_probe) -> None:
     assert manifest.status("git-status") == "empty"
 
 
-def test_git_subdirectory_scope(temp_target: Path, run_probe) -> None:
+def test_git_subdirectory_scope(temp_target: Path, run_probe: RunProbe) -> None:
     init_git_repo(temp_target)
     subdir = temp_target / "packages" / "subpkg"
     subdir.mkdir(parents=True)

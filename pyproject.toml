@@ -1,6 +1,6 @@
 [project]
 name = "auditor"
-version = "2.0.0"
+version = "2.1.0"
 description = "One-pass evidence collection and audit engine for unfamiliar codebases."
 authors = [{ name = "Zach Gardner", email = "locriani@gmail.com" }]
 readme = "README.md"

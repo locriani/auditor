@@ -1,7 +1,7 @@
 {
   "name": "auditor",
   "description": "The auditor agent and the codebase-audit skill: run it before you read it, cite evidence or drop the finding, and hunt the defects whose exit status says success.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": {
     "name": "Zach Gardner",
     "email": "locriani@gmail.com"

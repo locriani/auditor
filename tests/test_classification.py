@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import RunProbe
+
 from auditor.bundle import BundleManager
 from auditor.models import ProbeAxis, ProbeOutput, ProbeStatus
 
 
-def test_manifest_columns_and_empty_target(temp_target: Path, temp_bundle: Path, run_probe) -> None:
+def test_manifest_columns_and_empty_target(
+    temp_target: Path, temp_bundle: Path, run_probe: RunProbe
+) -> None:
     manifest = run_probe(temp_target)
     rows = manifest.rows()
     assert len(rows) > 0

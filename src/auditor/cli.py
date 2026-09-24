@@ -18,7 +18,7 @@ app = typer.Typer(
 
 
 def validate_timeout(timeout_str: str) -> int:
-    """Validate timeout string matching probe.sh rules."""
+    """Validate --timeout: whole seconds, or 0 to disable."""
     cleaned = timeout_str.strip()
     if not cleaned or not cleaned.isdigit():
         sys.stderr.write(f"invalid --timeout: '{timeout_str}' (whole seconds, or 0 to disable)\n")
@@ -77,7 +77,7 @@ def main(
     """Run one-pass evidence collection across 9 axes on <target-dir>."""
     if target is None:
         sys.stderr.write(
-            "probe.sh <target-dir> [-o <bundle-dir>] [--run-toolchains] [--host-containers] [--timeout N]\n"
+            "auditor-probe <target-dir> [-o <bundle-dir>] [--run-toolchains] [--host-containers] [--timeout N]\n"
         )
         sys.exit(2)
 

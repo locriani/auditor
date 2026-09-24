@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from conftest import RunProbe
 
-def test_secret_scan_file_types_and_minified(temp_target: Path, run_probe) -> None:
+
+def test_secret_scan_file_types_and_minified(temp_target: Path, run_probe: RunProbe) -> None:
     # Minified files and lockfiles should be excluded
     (temp_target / "app.min.js").write_text('api_key = "secret_in_minified";\n', encoding="utf-8")
     (temp_target / "package-lock.json").write_text(
@@ -23,7 +26,7 @@ def test_secret_scan_file_types_and_minified(temp_target: Path, run_probe) -> No
     assert "secret_in_tf1234" in manifest.out_content("secret-scan")
 
 
-def test_git_log_truncation(temp_target: Path, run_probe) -> None:
+def test_git_log_truncation(temp_target: Path, run_probe: RunProbe) -> None:
     # Create git repo with 45 commits
     import subprocess
 
@@ -44,12 +47,14 @@ def test_git_log_truncation(temp_target: Path, run_probe) -> None:
     assert (manifest.bundle_dir / "out" / "git-log.full.txt").is_file()
 
 
-def test_timeout_execution(temp_target: Path, monkeypatch, run_probe) -> None:
+def test_timeout_execution(
+    temp_target: Path, monkeypatch: pytest.MonkeyPatch, run_probe: RunProbe
+) -> None:
     # Test that a probe that hangs hits the timeout and classifies as error
     import auditor.probes.git as git_probe
     from auditor.models import ProbeOutput
 
-    def mock_run_command(*args, **kwargs):
+    def mock_run_command(*args: object, **kwargs: object) -> ProbeOutput:
         return ProbeOutput(exit_code=124, stdout="", stderr="", timed_out=True)
 
     monkeypatch.setattr(git_probe, "run_command", mock_run_command)

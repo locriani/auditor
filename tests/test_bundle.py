@@ -5,6 +5,7 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from auditor.cli import app
@@ -23,7 +24,7 @@ def test_bundle_permissions_and_marker(cli_runner: CliRunner, tmp_path: Path) ->
 
     marker_file = bundle / ".codebase-audit-bundle"
     assert marker_file.is_file()
-    assert "safe for probe.sh to clear on reuse" in marker_file.read_text(encoding="utf-8")
+    assert "safe for auditor-probe to clear on reuse" in marker_file.read_text(encoding="utf-8")
 
 
 def test_bundle_refuses_regular_file(cli_runner: CliRunner, tmp_path: Path) -> None:
@@ -46,7 +47,7 @@ def test_bundle_refuses_unmarked_nonempty_directory(cli_runner: CliRunner, tmp_p
 
     res = cli_runner.invoke(app, [str(target), "-o", str(bundle_dir)])
     assert res.exit_code == 2
-    assert "not empty and was not created by probe.sh" in res.stderr
+    assert "not empty and was not created by auditor-probe" in res.stderr
 
 
 def test_bundle_reuse_clears_out_directory(cli_runner: CliRunner, tmp_path: Path) -> None:
@@ -102,7 +103,7 @@ def test_bundle_refuses_symlink_into_target(cli_runner: CliRunner, tmp_path: Pat
 
 
 def test_cdpath_export_does_not_interfere(
-    cli_runner: CliRunner, tmp_path: Path, monkeypatch
+    cli_runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = tmp_path / "target"
     target.mkdir()

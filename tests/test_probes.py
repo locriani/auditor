@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import RunProbe
 
-def test_build_inputs_probes(temp_target: Path, run_probe) -> None:
+
+def test_build_inputs_probes(temp_target: Path, run_probe: RunProbe) -> None:
     (temp_target / "Dockerfile").write_text(
         "FROM alpine:latest\nRUN curl -s https://example.com | sh\n", encoding="utf-8"
     )
@@ -31,7 +33,7 @@ def test_build_inputs_probes(temp_target: Path, run_probe) -> None:
     assert "./docker-compose.yml" in manifest.out_content("compose-files")
 
 
-def test_surface_and_standards_probes(temp_target: Path, run_probe) -> None:
+def test_surface_and_standards_probes(temp_target: Path, run_probe: RunProbe) -> None:
     (temp_target / "api.py").write_text(
         '@app.route("GET /users")\ndef get_users(): pass\n', encoding="utf-8"
     )
@@ -62,7 +64,7 @@ def test_surface_and_standards_probes(temp_target: Path, run_probe) -> None:
     assert "toml" in census_out
 
 
-def test_testing_probes(temp_target: Path, run_probe) -> None:
+def test_testing_probes(temp_target: Path, run_probe: RunProbe) -> None:
     (temp_target / "tests").mkdir()
     (temp_target / "tests" / "test_app.py").write_text("def test_ok(): pass\n", encoding="utf-8")
     (temp_target / "README.md").write_text(
@@ -85,7 +87,7 @@ def test_testing_probes(temp_target: Path, run_probe) -> None:
     assert "badge.svg" in manifest.out_content("ci-badges")
 
 
-def test_observability_probes(temp_target: Path, run_probe) -> None:
+def test_observability_probes(temp_target: Path, run_probe: RunProbe) -> None:
     (temp_target / "server.js").write_text(
         """
         const winston = require('winston');
@@ -115,7 +117,7 @@ def test_observability_probes(temp_target: Path, run_probe) -> None:
     assert "./server.js" in manifest.out_content("swallowed-exceptions")
 
 
-def test_size_and_compliance_probes(temp_target: Path, run_probe) -> None:
+def test_size_and_compliance_probes(temp_target: Path, run_probe: RunProbe) -> None:
     (temp_target / "LICENSE").write_text("MIT License\n", encoding="utf-8")
     (temp_target / "NOTICE").write_text("Notice file\n", encoding="utf-8")
     (temp_target / "large.bin").write_bytes(b"x" * 1024)
@@ -135,7 +137,7 @@ def test_size_and_compliance_probes(temp_target: Path, run_probe) -> None:
     assert manifest.status("repo-size") == "ok"
 
 
-def test_pruning_generated_and_vendor_trees(temp_target: Path, run_probe) -> None:
+def test_pruning_generated_and_vendor_trees(temp_target: Path, run_probe: RunProbe) -> None:
     # Files inside node_modules, .venv, or .git should not be counted or scanned
     node_modules = temp_target / "node_modules" / "badpkg"
     node_modules.mkdir(parents=True)

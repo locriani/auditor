@@ -15,7 +15,7 @@ from typing import Literal
 from auditor.models import ProbeOutput, ProbeRecord, ProbeStatus
 
 MARKER = ".codebase-audit-bundle"
-MARKER_TEXT = "created by codebase-audit probe.sh; safe for probe.sh to clear on reuse\n"
+MARKER_TEXT = "created by codebase-audit auditor-probe; safe for auditor-probe to clear on reuse\n"
 
 MANIFEST_HEADER = "probe\taxis\tstatus\texit\tbytes\tlines\tstderr\tfile\tnote\n"
 
@@ -109,7 +109,7 @@ class BundleManager:
             if has_entries:
                 if not marker_file.is_file():
                     sys.stderr.write(
-                        f"refusing: {bundle_path} is not empty and was not created by probe.sh\n"
+                        f"refusing: {bundle_path} is not empty and was not created by auditor-probe\n"
                         f"          (no {MARKER} marker). Nothing was modified. Choose an empty\n"
                         f"          or new directory for -o.\n"
                     )
@@ -207,7 +207,6 @@ class BundleManager:
         rc = output.exit_code
         expected = rc in ok_codes
 
-        # Status classification matching probe.sh lines 192-228
         if output.timed_out:
             status = ProbeStatus.ERROR
             note = f"TIMED OUT after {self.timeout}s — the output file holds only what arrived before the kill"

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import RunProbe
 
-def test_toolchains_gated_by_default(temp_target: Path, run_probe) -> None:
+
+def test_toolchains_gated_by_default(temp_target: Path, run_probe: RunProbe) -> None:
     # Create all manifests
     (temp_target / "composer.json").write_text("{}", encoding="utf-8")
     (temp_target / "package.json").write_text("{}", encoding="utf-8")
@@ -33,7 +35,9 @@ def test_toolchains_gated_by_default(temp_target: Path, run_probe) -> None:
     assert "toolchains: NOT RUN" in env_text
 
 
-def test_npm_audit_enolock_is_error(temp_target: Path, mock_bin_dir: Path, run_probe) -> None:
+def test_npm_audit_enolock_is_error(
+    temp_target: Path, mock_bin_dir: Path, run_probe: RunProbe
+) -> None:
     (temp_target / "package.json").write_text("{}", encoding="utf-8")
 
     # Create mock npm that outputs ENOLOCK
@@ -49,7 +53,9 @@ def test_npm_audit_enolock_is_error(temp_target: Path, mock_bin_dir: Path, run_p
     assert "printed no report" in manifest.note("npm-audit")
 
 
-def test_npm_audit_findings_is_ok(temp_target: Path, mock_bin_dir: Path, run_probe) -> None:
+def test_npm_audit_findings_is_ok(
+    temp_target: Path, mock_bin_dir: Path, run_probe: RunProbe
+) -> None:
     (temp_target / "package.json").write_text("{}", encoding="utf-8")
 
     # Create mock npm that outputs vulnerability report with exit 1
@@ -62,3 +68,27 @@ def test_npm_audit_findings_is_ok(temp_target: Path, mock_bin_dir: Path, run_pro
 
     manifest = run_probe(temp_target, "--run-toolchains")
     assert manifest.status("npm-audit") == "ok"
+
+
+def test_host_containers_gated_by_default(
+    temp_target: Path, mock_bin_dir: Path, run_probe: RunProbe
+) -> None:
+    # A docker stand-in that leaves a footprint whenever it runs.
+    footprint = mock_bin_dir / "docker.called"
+    mock_docker = mock_bin_dir / "docker"
+    mock_docker.write_text(
+        f"#!/bin/sh\ntouch '{footprint}'\nprintf 'web\\tUp\\tnginx\\t80/tcp\\n'\n",
+        encoding="utf-8",
+    )
+    mock_docker.chmod(0o755)
+
+    manifest = run_probe(temp_target)
+    for p in ("docker-ps", "db-clients"):
+        assert manifest.status(p) == "n/a", f"{p} must not run without --host-containers"
+        assert "pass --host-containers" in manifest.note(p)
+    assert not footprint.exists(), "docker ran without --host-containers"
+
+    manifest = run_probe(temp_target, "--host-containers")
+    assert footprint.exists()
+    assert manifest.status("docker-ps") == "ok"
+    assert "nginx" in manifest.out_content("docker-ps")

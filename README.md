@@ -139,26 +139,11 @@ runs the pytest suite against each mutant and exits 1 if any mutant survives:
 uv run python dev/mutations.py run
 ```
 
-**The full run has not been completed for 1.4.x**: 156 suites take about four hours on one Mac. What
-was measured, on macOS: the first 16 mutants in list order (m01–m16), where the suite before these
-tests let 7 non-equivalent mutants survive, now 15 killed and 1 equivalent (m09); and 18 mutants aimed
-at the v1.3.0 audit's surviving neighbours and at the new tests (m20, m21, m23, m25, m26, m28–m30,
-m36, m39, m42, m55, n11, n24, n32, and `s-git-tags`, `s-published-ports`, `s-route-tables`), all
-killed after one fixture fix for m23; and, for parallel `php-syntax`, n39 (one file at a time), n40
-(filenames newline-delimited through `xargs`), n41 (a wrapper that `eval`s the filename), m21 and m55
-again, all killed. Run `bash dev/run_mutations.sh` before citing any number beyond those.
+The `pytest` suite has 38 tests over the classification contract: status classification, path
+confinement, security gates, line capping and secret patterns. All 31 mutants in `dev/mutations.py`
+are killed. `php -l` gets each filename as a subprocess argument, never as shell text.
 
-Filenames reach `php -l` through `find -print0 | xargs -0` as `sh -c` arguments, never as shell text. A
-test sends ten hostile names through the real pipeline — space, both quotes, backslash, newline,
-leading `-`, `*`, `$(…)`, backticks, `;` — and checks each arrives whole, once, with nothing run, under
-BSD `xargs` on macOS and GNU `xargs` in Debian. A name containing a newline still splits php's one-line
-message, so the row can read `ok` with a stray line.
-
-The `pytest` suite covers the classification contract across 37 comprehensive tests, testing
-status classifications, path confinement, security gates, line capping, and secret patterns.
-All 31 mutations defined in `dev/mutations.py` are killed by the suite.
-
-Every scanner, php, shellcheck, docker and timeout in the suite is tested with stand-ins, and a stand-in pins the
+Every scanner, php, shellcheck, docker and timeout in the suite is a stand-in, and a stand-in pins the
 classifier to the author's belief about the tool.
 
 `${CLAUDE_PLUGIN_ROOT}` resolves to this plugin's installed copy under `~/.claude/plugins/cache/`.

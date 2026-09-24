@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import RunProbe
 
-def test_secret_scan_length_threshold(temp_target: Path, run_probe) -> None:
+
+def test_secret_scan_length_threshold(temp_target: Path, run_probe: RunProbe) -> None:
     # 6-character literal should match
     f6 = temp_target / "config_6.py"
     f6.write_text('api_key = "123456"\n', encoding="utf-8")
@@ -23,7 +25,7 @@ def test_secret_scan_length_threshold(temp_target: Path, run_probe) -> None:
     assert manifest.status("secret-scan") == "empty"
 
 
-def test_secret_scan_shapes(temp_target: Path, run_probe) -> None:
+def test_secret_scan_shapes(temp_target: Path, run_probe: RunProbe) -> None:
     test_file = temp_target / "app.js"
     test_file.write_text(
         """
@@ -55,13 +57,13 @@ def test_secret_scan_shapes(temp_target: Path, run_probe) -> None:
     assert "Date.now" not in out
 
 
-def test_secret_scan_empty_note(temp_target: Path, run_probe) -> None:
+def test_secret_scan_empty_note(temp_target: Path, run_probe: RunProbe) -> None:
     manifest = run_probe(temp_target)
     assert manifest.status("secret-scan") == "empty"
     assert "finds one-line assignments and URL credentials only" in manifest.note("secret-scan")
 
 
-def test_env_files_probe(temp_target: Path, run_probe) -> None:
+def test_env_files_probe(temp_target: Path, run_probe: RunProbe) -> None:
     (temp_target / ".env").write_text("A=1\n", encoding="utf-8")
     (temp_target / ".env.production").write_text("B=2\n", encoding="utf-8")
 
@@ -72,7 +74,7 @@ def test_env_files_probe(temp_target: Path, run_probe) -> None:
     assert "./.env.production" in out
 
 
-def test_published_ports_probe(temp_target: Path, run_probe) -> None:
+def test_published_ports_probe(temp_target: Path, run_probe: RunProbe) -> None:
     compose = temp_target / "docker-compose.yml"
     compose.write_text(
         """

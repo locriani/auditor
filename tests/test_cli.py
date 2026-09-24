@@ -12,9 +12,7 @@ from auditor.cli import app
 def test_cli_no_args(cli_runner: CliRunner) -> None:
     res = cli_runner.invoke(app, [])
     assert res.exit_code == 2
-    assert (
-        "probe.sh <target-dir>" in res.stderr or "auditor-probe" in res.stderr or res.exit_code == 2
-    )
+    assert "auditor-probe <target-dir>" in res.stderr
 
 
 def test_cli_missing_target(cli_runner: CliRunner, tmp_path: Path) -> None:

@@ -99,7 +99,7 @@ def run_secret_probes(bundle: BundleManager, target: Path) -> None:
     secret_err = "\n".join(stderr_msgs) + ("\n" if stderr_msgs else "")
 
     if unreadable_tree and not matches:
-        # Matches probe.sh behavior when tree cannot be read and no match found
+        # An unreadable tree with no match is an error, not an empty result
         secret_rc = 2
     else:
         secret_rc = 0 if matches else 1
@@ -107,7 +107,7 @@ def run_secret_probes(bundle: BundleManager, target: Path) -> None:
     empty_note = (
         "the pattern matched nothing in the file types listed in env.txt. "
         "It finds one-line assignments and URL credentials only (SKILL.md, "
-        "What probe.sh does not guarantee) — this is not evidence of no secrets"
+        "What auditor-probe does not guarantee) — this is not evidence of no secrets"
     )
 
     bundle.record_probe(

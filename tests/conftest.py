@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import os
-from collections.abc import Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -63,8 +63,11 @@ class ManifestHelper:
         return p.read_text(encoding="utf-8") if p.is_file() else ""
 
 
+RunProbe = Callable[..., ManifestHelper]
+
+
 @pytest.fixture
-def run_probe(tmp_path: Path) -> Iterator[any]:
+def run_probe(tmp_path: Path) -> RunProbe:
     """Helper function to run auditor-probe and return ManifestHelper."""
 
     def _run(target: Path, *extra_args: str) -> ManifestHelper:
@@ -77,7 +80,7 @@ def run_probe(tmp_path: Path) -> Iterator[any]:
         )
         return ManifestHelper(bundle_dir)
 
-    yield _run
+    return _run
 
 
 @pytest.fixture
