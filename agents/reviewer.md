@@ -63,11 +63,15 @@ Never use `--approve` or `--request-changes`. The body opens with
 coordinator named in the block. If that fails, fall back to the coordinator's mailbox:
 
 ```sh
-python3 <chief-of-stuff plugin root>/scripts/inbox.py send --to coordinator --from reviewer \
-  --type review --task "<task>" --body "$(cat <scratch>/report-N.md)"
+python3 <chief-of-stuff plugin root>/scripts/inbox.py send --mailbox-dir <workspace>/.chief-of-stuff/mailbox \
+  --to coordinator --from reviewer --type review --task "<task>" --body "$(cat <scratch>/report-N.md)"
 ```
 
 The chief-of-stuff plugin root is the newest `~/.claude/plugins/cache/chief-of-stuff/chief-of-stuff/*/`.
+`<workspace>` is the directory holding the `CLAUDE.md` with the `## Coordinator` block. If your hand-off
+gave you an inbox command, use that one as given, since it already names the mailbox. Always pass
+`--mailbox-dir`. Without it, the inbox guesses from your working directory, and from inside a repo it
+writes the report into that repo, where the coordinator never reads it.
 
 **8. Clean up and wait.** Run `git worktree remove <scratch>/pr-N`. Reply to whoever handed you the
 PR with the report's first line, then wait for the next PR.
