@@ -124,3 +124,5 @@ settle it is a contribution; the same finding asserted as fact is a liability.
 Findings that came from **operating** the system, not reading it. Evidence a reader can check in
 seconds. Severities that were derived rather than felt. A downstream line on every finding. And a
 stated boundary, because implied total coverage is never believed and never true.
+
+A pull request is not an audit target. Diff review is the `reviewer` agent's, with the `pr-review` skill.
