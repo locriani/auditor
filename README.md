@@ -95,11 +95,24 @@ Exit codes: `0` the run completed — findings are not failures — and `2` for 
 that does not exist, or a refused `-o`. Two runs into the same `-o` at once are not supported; one of
 them can exit `1`.
 
+## Reviewer
+
+`agents/reviewer.md` is a standing pull-request reviewer (`claude --agent reviewer`). It checks that
+the PR builds, then dispatches eight axes in one message: correctness, security and edge cases,
+over-engineering (`ponytail:ponytail-review`), architecture compliance against the workspace's
+canonical document, SOLID, Clean Architecture, tests that lie, and a suite run on the head sha.
+Every finding cites `file:line` and evidence, or it is dropped. The reviewer posts one comment on
+the PR and reports to the coordinator. The user marks each finding **file**, **keep**, **fix**, or
+**discard**. It runs one full pass and one verify pass per PR, and a third needs the user's word.
+It never fixes, approves, or merges. The method is `skills/pr-review/`.
+
 ## Layout
 
 ```
 .claude-plugin/plugin.json                       marketplace metadata
 agents/auditor.md                                the subagent — running order for the nine axes
+agents/reviewer.md                               the standing PR reviewer — running order
+skills/pr-review/                                review method, persona catalog, reviewer template
 skills/codebase-audit/SKILL.md                   method, severity matrix, finding format
 src/auditor/                                     Python package
   cli.py                                         auditor-probe CLI entrypoint
@@ -173,4 +186,4 @@ It is not a penetration test, not a load test, and not a substitute for the ecos
 tooling. It runs those tools and reads their output; it does not replace them.
 
 It is also not a code review. Reviewing a diff you just wrote is a different task with a different
-method — use `code-review` for that.
+method — use the `reviewer` agent for that (see Reviewer, above).

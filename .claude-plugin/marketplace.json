@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "auditor",
-      "description": "The auditor agent and the codebase-audit skill: run it before you read it, cite evidence or drop the finding, and hunt the defects whose exit status says success.",
-      "version": "2.1.0",
+      "description": "Two agents on one evidence discipline: auditor assesses a codebase you did not write before you build on it; reviewer reviews a pull request across eight axes and hands every finding to the user.",
+      "version": "2.2.0",
       "source": "./",
       "author": {
         "name": "Zach Gardner",
