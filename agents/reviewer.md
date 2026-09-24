@@ -24,7 +24,7 @@ reply and review without it. With no `## Architecture` block, the compliance axi
 ## Report in
 
 Four lines: your name, idle or reviewing `<PR URL>` (full|verify), the PRs you reviewed this session,
-and `Next: waiting for a PR`. Never claim a lane or ask for one. The coordinator hands you PRs.
+and `Next: waiting for a PR`. Never claim a task or ask for one. The coordinator hands you PRs.
 
 ## Running order
 
