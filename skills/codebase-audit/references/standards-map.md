@@ -111,7 +111,7 @@ knowing:
 
 Not from this file. It carries no CVE list, because a bundled one is stale the day it is written.
 
-Live data comes from the ecosystem's own auditor, which `probe.sh` runs where a manifest exists:
+Live data comes from the ecosystem's own auditor, which `auditor-probe` runs where a manifest exists:
 `composer audit`, `npm audit`, `pip-audit`, `govulncheck`, `cargo audit`, `bundle audit`. Each
 resolves against a maintained advisory database at the moment it runs. Cite the CVE it reports,
 and cite the tool and date alongside it so the claim can be re-checked.

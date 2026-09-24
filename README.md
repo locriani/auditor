@@ -35,15 +35,14 @@ Plugin skills only surface in **new** Claude Code sessions, so quit and reopen a
 claude plugin list        # auditor@auditor, enabled
 ```
 
-No external dependencies. `probe.sh` is bash 3.2 compatible and uses whatever is already on the
-machine — it degrades to `n/a` rather than failing when a tool is absent. `dev/run_mutations.sh`
-needs `python3`.
+Managed with `uv` for Python 3.11+. Dependencies (`typer`, `rich`, `pydantic`) and dev tools
+(`pytest`, `ruff`, `mypy`) are managed via `pyproject.toml`.
 
 ## Collecting evidence
 
 ```sh
 mkdir -m 700 /path/outside/target/bundle
-bash "${CLAUDE_PLUGIN_ROOT}"/skills/codebase-audit/scripts/probe.sh <target-dir> -o <bundle-dir> \
+uv run --project "${CLAUDE_PLUGIN_ROOT}" auditor-probe <target-dir> -o <bundle-dir> \
      [--run-toolchains] [--host-containers] [--timeout N]
 ```
 
@@ -87,7 +86,7 @@ physically could not report failure, so a scan of a tree it could not read came 
 replace the producer's exit, so a failing producer is a failing probe. No probe discards its stderr.
 A scanner row that must hold a report (`npm-audit`, `pip-audit`) is `error` when it does not. The `stderr` column and the `TRUNCATED` note apply the same
 principle: a partial read must not pass as a complete one. What it still cannot promise is listed
-under *What probe.sh does not guarantee* in `SKILL.md`.
+under *What auditor-probe does not guarantee* in `SKILL.md`.
 
 The bundle is evidence, not findings. It tells you a port is published; whether that matters is a
 judgment, and judgment is what the skill is for.
@@ -102,11 +101,14 @@ them can exit `1`.
 .claude-plugin/plugin.json                       marketplace metadata
 agents/auditor.md                                the subagent — running order for the nine axes
 skills/codebase-audit/SKILL.md                   method, severity matrix, finding format
-skills/codebase-audit/scripts/probe.sh           one-pass evidence collection
-skills/codebase-audit/scripts/test_probe.sh      its tests — status classification,
-                                                 execution and exposure, every probe's output
-dev/mutations.py                                 the mutation list the tests are measured against
-dev/run_mutations.sh                             runs the suite against every mutant
+src/auditor/                                     Python package
+  cli.py                                         auditor-probe CLI entrypoint
+  runner.py                                      orchestrator across nine axes
+  bundle.py                                      bundle management, safety, and manifest writer
+  models.py                                      Pydantic models and ProbeRecord
+  probes/                                        probes by axis
+tests/                                           pytest test suite
+dev/mutations.py                                 domain-specific mutation testing suite
 skills/codebase-audit/references/security.md         at what layer is authorization enforced?
 skills/codebase-audit/references/supply-chain.md     does the build produce your code?
 skills/codebase-audit/references/performance.md      what limit governs the serving path?
@@ -120,7 +122,7 @@ skills/codebase-audit/references/standards-map.md    OWASP / ASVS / CWE identifi
 ```
 
 ```sh
-bash skills/codebase-audit/scripts/test_probe.sh
+uv run pytest
 ```
 
 The tests target the classification contract, because that is where a wrong answer produces a
@@ -129,48 +131,20 @@ nothing at all. They also pin execution and exposure (no toolchain runs without 
 config command runs, the bundle is private and outside the target) and give every probe a fixture with
 something to find. No network, no docker, no fixtures outside a temp dir.
 
-**A green run is not the evidence; mutation is.** `dev/mutations.py` lists 156 literal breakages of
-`probe.sh`: the v1.3.0 self-audit's 58 re-based onto the current text, one for each fix made since, and
-one per probe that replaces its command with `true`. `bash dev/run_mutations.sh` runs the suite against
-each (python3 required; `-j` sets parallelism, and IDs restrict the run) and exits 1 on any survivor
-that is not listed as equivalent or inapplicable on the host. Each run puts a stand-in for every scanner
-and docker first on `PATH`, so a mutant that removes a gate cannot run a real toolchain or reach this
-machine's containers.
+**A green run is not the evidence; mutation is.** `dev/mutations.py` defines domain-specific regression
+mutations representing historical edge cases and defect boundaries. `uv run python dev/mutations.py run`
+runs the pytest suite against each mutant and exits 1 if any mutant survives:
 
-**The full run has not been completed for 1.4.x**: 156 suites take about four hours on one Mac. What
-was measured, on macOS: the first 16 mutants in list order (m01–m16), where the suite before these
-tests let 7 non-equivalent mutants survive, now 15 killed and 1 equivalent (m09); and 18 mutants aimed
-at the v1.3.0 audit's surviving neighbours and at the new tests (m20, m21, m23, m25, m26, m28–m30,
-m36, m39, m42, m55, n11, n24, n32, and `s-git-tags`, `s-published-ports`, `s-route-tables`), all
-killed after one fixture fix for m23; and, for parallel `php-syntax`, n39 (one file at a time), n40
-(filenames newline-delimited through `xargs`), n41 (a wrapper that `eval`s the filename), m21 and m55
-again, all killed. Run `bash dev/run_mutations.sh` before citing any number beyond those.
+```sh
+uv run python dev/mutations.py run
+```
 
-Filenames reach `php -l` through `find -print0 | xargs -0` as `sh -c` arguments, never as shell text. A
-test sends ten hostile names through the real pipeline — space, both quotes, backslash, newline,
-leading `-`, `*`, `$(…)`, backticks, `;` — and checks each arrives whole, once, with nothing run, under
-BSD `xargs` on macOS and GNU `xargs` in Debian. A name containing a newline still splits php's one-line
-message, so the row can read `ok` with a stray line.
+The `pytest` suite has 38 tests over the classification contract: status classification, path
+confinement, security gates, line capping and secret patterns. All 31 mutants in `dev/mutations.py`
+are killed. `php -l` gets each filename as a subprocess argument, never as shell text.
 
-`test_probe.sh` passes 179 tests on macOS (2 skipped: needs root; needs shellcheck absent), 176 as
-non-root in Debian (4 skipped: branches that only run without a timeout binary or shellcheck) and 163
-as root (5 skipped: permission fixtures root can read, and the same branches).
-
-Every scanner, php, shellcheck, docker and `timeout` in the suite is a stand-in, and a stand-in pins the
-classifier to the author's belief about the tool. Both Critical findings of the v1.3.0 self-audit sat
-where that belief was wrong, so the real tools were run by hand for 1.4.0, in Debian as non-root
-(bash 5.2.37, git 2.47.3, shellcheck 0.10.0, pip-audit 2.10.1, cargo 1.85.1, GNU coreutils 9.7):
-
-- `pip-audit` with `--run-toolchains` on a `django==2.2.0` / `requests==2.19.0` target files `ok` and
-  names the target's six packages and 107 known vulnerabilities; without the flag, `error` / `not run`.
-- A `.cargo/config.toml` alias that runs target code does not fire with or without the flag; `cargo
-  audit` typed by hand in the same tree does.
-- A target `.git` with `core.fsmonitor`, `log.showSignature` + `gpg.program`, and a clean filter in
-  `.git/info/attributes`: no command runs on a default collection; `git status` by hand runs two.
-- shellcheck over `probe.sh` reports one note (SC2016, intentional single quotes in `db-clients`) and no
-  parse errors; `test_probe.sh` has no warnings.
-- A second local account that pre-creates 60 predictable bundle names gets none of the run's files,
-  cannot read `out/secret-scan.txt` or write `manifest.tsv`, and an `-o` it owns is refused.
+Every scanner, php, shellcheck, docker and timeout in the suite is a stand-in, and a stand-in pins the
+classifier to the author's belief about the tool.
 
 `${CLAUDE_PLUGIN_ROOT}` resolves to this plugin's installed copy under `~/.claude/plugins/cache/`.
 Editing this repo does not change what a running session loads — run

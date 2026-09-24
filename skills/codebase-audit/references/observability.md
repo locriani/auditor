@@ -27,7 +27,7 @@ health     is it behaving correctly?      the one that actually matters
 
 A liveness endpoint returning 200 from a process whose database is unreachable is technically correct and operationally useless. Check what each endpoint actually verifies — most return a literal constant. That is fine for liveness and a lie for readiness.
 
-Where a pluggable health interface already exists, say so explicitly: adding a check becomes a new implementation rather than new infrastructure, which changes the estimate for anything you build. `probe.sh` collects candidates in `health-endpoints`.
+Where a pluggable health interface already exists, say so explicitly: adding a check becomes a new implementation rather than new infrastructure, which changes the estimate for anything you build. `auditor-probe` collects candidates in `health-endpoints`.
 
 ## Can you answer a question you did not anticipate?
 

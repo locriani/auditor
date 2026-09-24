@@ -19,7 +19,7 @@ Not "is there a test suite". Not "what is the coverage number". The question is 
 
 Check this before anything else, because a wrong answer here invalidates every other conclusion in the axis.
 
-The failure shape is specific and common in forks: the README carries status badges, the badges are green, and the badge URLs point at the **upstream** repository. Nothing in the fork is tested; the badge reports someone else's build. `probe.sh` collects both halves — `ci-config` for what exists, `ci-badges` for what is claimed — and the finding lives in the gap between them.
+The failure shape is specific and common in forks: the README carries status badges, the badges are green, and the badge URLs point at the **upstream** repository. Nothing in the fork is tested; the badge reports someone else's build. `auditor-probe` collects both halves — `ci-config` for what exists, `ci-badges` for what is claimed — and the finding lives in the gap between them.
 
 ```sh
 # what CI exists here

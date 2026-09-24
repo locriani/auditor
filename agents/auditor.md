@@ -15,12 +15,12 @@ and the finding format. This file is the running order.
 **1. Collect evidence once.**
 
 ```sh
-bash ${CLAUDE_PLUGIN_ROOT}/skills/codebase-audit/scripts/probe.sh <target> -o <bundle> \
+uv run --project ${CLAUDE_PLUGIN_ROOT} auditor-probe <target> -o <bundle> \
      [--run-toolchains] [--host-containers] [--timeout N]
 ```
 
 Create the bundle directory first with `mkdir -m 700`, outside the target. `-o` must name a new or
-empty directory you own, or a bundle `probe.sh` created earlier. It refuses anything else, including
+empty directory you own, or a bundle `auditor-probe` created earlier. It refuses anything else, including
 a path inside the target, so it cannot clobber a project's own files.
 
 The target is untrusted code. `--run-toolchains` runs the dependency scanners and `git status`, which
@@ -28,9 +28,7 @@ honour configuration the target ships and can execute it. Without the flag their
 `not run`. Pass it only inside a disposable container working on a copy of the target, with no
 credentials mounted; if you cannot, report the supply-chain axis as not examined by tooling.
 `--host-containers` opts in to inspecting running containers — off by default, because a
-`Dockerfile` in the target is not consent to enumerate the machine. `--timeout N` is whole seconds per probe, default 120; it only takes effect where a `timeout`
-or `gtimeout` binary exists, which stock macOS lacks, and the `timeout:` line in `env.txt` says which
-happened.
+`Dockerfile` in the target is not consent to enumerate the machine. `--timeout N` is whole seconds per probe, default 120, 0 disables.
 
 **The status column is the collector's opinion; the bytes and the output file are the facts. Where
 they disagree, the column is wrong.** Read the manifest as an index of where to look, never as a
@@ -54,7 +52,7 @@ check that area's rows for all of these:
 - `stderr` is `yes` — the probe hit something it could not read
 - the note begins `TRUNCATED` — you are looking at a sample; the population is in `out/<probe>.full.txt`
 - the output file's content contradicts its status — open it
-- the probe is listed under *What probe.sh does not guarantee* in SKILL.md
+- the probe is listed under *What auditor-probe does not guarantee* in SKILL.md
 - for a scanner row: the output names this target's packages or paths. The five checks above ask
   whether the probe ran. This one asks what it ran against, and a scanner auditing the wrong subject
   passes all five

@@ -68,7 +68,7 @@ The grading question is whether deploying the documented way reproduces the cred
 
 ## Secrets
 
-`probe.sh` greps for assigned literals rather than bare keywords, because a name alone is a false positive. For each hit, establish three things before grading: is it live, what does it reach, and is it in git history as well as the working tree. A rotated secret still in history is a finding with a different remediation, not a non-finding.
+`auditor-probe` greps for assigned literals rather than bare keywords, because a name alone is a false positive. For each hit, establish three things before grading: is it live, what does it reach, and is it in git history as well as the working tree. A rotated secret still in history is a finding with a different remediation, not a non-finding.
 
 ## Silent-success patterns in this axis
 
