@@ -1,7 +1,8 @@
 # Project: auditor
 
 A Claude Code plugin that ships the `auditor` agent (`agents/auditor.md`) and the
-`codebase-audit` skill (`skills/codebase-audit/`). It assesses a codebase somebody else
+`codebase-audit` skill (`skills/codebase-audit/`), plus the `reviewer` agent (`agents/reviewer.md`)
+and the `pr-review` skill (`skills/pr-review/`), which share its evidence discipline. It assesses a codebase somebody else
 wrote, before work gets built on top of it.
 
 **The name is provisional.** Zach, 2026-09-19: *"just call it Auditor for now."* Repo,

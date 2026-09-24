@@ -1,6 +1,6 @@
 ---
 name: codebase-audit
-description: Use when a codebase someone else wrote has to be assessed before work is built on top of it — inheriting a service, forking an open-source project, technical due diligence, an AUDIT.md gate, "what are we walking into" — because the findings that matter come from operating the system and expire the moment they are asserted without evidence. Do NOT use for reviewing a diff you or the team just wrote.
+description: Use when a codebase someone else wrote has to be assessed before work is built on top of it — inheriting a service, forking an open-source project, technical due diligence, an AUDIT.md gate, "what are we walking into" — because the findings that matter come from operating the system and expire the moment they are asserted without evidence. Do NOT use for reviewing a diff you or the team just wrote — that is the pr-review skill and the reviewer agent.
 ---
 
 # Codebase Audit
