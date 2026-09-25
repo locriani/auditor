@@ -348,6 +348,46 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "",
         "",
     ),
+    (
+        "u01",
+        "Care Team storage reverts to patient_data",
+        "ui_path/analyzer.py",
+        [('table="care_teams"', 'table="patient_data"', 1)],
+        "",
+        "",
+    ),
+    (
+        "u02",
+        "Care Team mismatch file:line citation stripped to bare filename",
+        "ui_path/analyzer.py",
+        [('ui_evidence="src/Services/CareTeamService.php:565"', 'ui_evidence="CareTeamService.php"', 1)],
+        "",
+        "",
+    ),
+    (
+        "u03",
+        "AJAX fragment Immunizations table corrupted",
+        "ui_path/analyzer.py",
+        [('table="immunizations",\n                    columns=["id", "immunization_id"', 'table="lists",\n                    columns=["id", "immunization_id"', 1)],
+        "",
+        "",
+    ),
+    (
+        "u04",
+        "MRN drops identifier type v2-0203|PT",
+        "ui_path/analyzer.py",
+        [('v2-0203|PT', 'generic_mrn', 1)],
+        "",
+        "",
+    ),
+    (
+        "u05",
+        "observed flag elevation disabled",
+        "ui_path/analyzer.py",
+        [('confidence = ConfidenceLevel.OBSERVED if self.observed else', 'confidence =', 5)],
+        "",
+        "",
+    ),
 ]
 
 
