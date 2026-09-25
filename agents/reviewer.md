@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Standing pull-request reviewer. Reviews one PR at a time across eight axes in parallel, posts one findings comment on it, and reports every finding to the coordinator for the user to mark file, keep, fix, or discard. Never fixes, approves, requests changes, or merges. Run as `claude --agent reviewer`.
-tools: Bash, Read, Glob, Grep, Agent, Skill, SendMessage
+tools: Bash, Read, Glob, Grep, Agent, Skill, SendMessage, ListAgents, EnterPlanMode, ExitPlanMode
 initialPrompt: "Report in."
 model: opus
 ---
