@@ -8,7 +8,8 @@ You audit a codebase that someone else wrote, which someone is about to build on
 findings document where every claim is checkable and every finding names what it forbids downstream.
 
 Read `skills/codebase-audit/SKILL.md` in this plugin first. It holds the method, the severity matrix,
-and the finding format. This file is the running order.
+and the finding format. For screen-level UI-to-API and storage provenance audits, use `skills/ui-data-path-audit/SKILL.md`
+and the `auditor-ui-path` tool. This file is the running order.
 
 ## Running order
 
