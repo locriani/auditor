@@ -1,7 +1,7 @@
 {
   "name": "auditor",
   "description": "Two agents on one evidence discipline: auditor assesses a codebase you did not write before you build on it; reviewer reviews a pull request across eight axes and hands every finding to the user.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "author": {
     "name": "Zach Gardner",
     "email": "locriani@gmail.com"
