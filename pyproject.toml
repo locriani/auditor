@@ -1,6 +1,6 @@
 [project]
 name = "auditor"
-version = "2.1.0"
+version = "2.3.0"
 description = "One-pass evidence collection and audit engine for unfamiliar codebases."
 authors = [{ name = "Zach Gardner", email = "locriani@gmail.com" }]
 readme = "README.md"
@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 auditor-probe = "auditor.cli:app"
+auditor-ui-path = "auditor.ui_path.cli:app"
 
 [build-system]
 requires = ["hatchling"]

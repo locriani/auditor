@@ -163,6 +163,24 @@ classifier to the author's belief about the tool.
 Editing this repo does not change what a running session loads — run
 `claude plugin marketplace update auditor` and reinstall to pick changes up.
 
+## UI Data-Path Audit
+
+Audits an application screen to determine whether and how every visible item can be rebuilt from backend APIs, and identifies where the screen and API diverge in data or filtering.
+
+```sh
+uv run auditor-ui-path <screen-path> [--target-dir <dir>] [--format json|markdown|both] [--out <file>] [--observed]
+```
+
+### Key Capabilities
+- **Item-Level Catalog**: Catalogs cards, fields, columns, badges, empty states, and persistent headers.
+- **Provenance Tracing**: Traces storage reads (table, columns, joins, filters), write paths, and API/FHIR paths.
+- **Evidence Discipline**: Every trace carries `file:line` citations, never bare filenames.
+- **Four Confidence Levels**: `precise`, `resource-level`, `table-fallback`, and opt-in `observed` (proven dynamically by confirming retrieval against the live API).
+- **Card Rendering Rules**: Extracts ACL gates, active filters, sort orders, empty-state strings, and highlighting.
+- **API vs. Screen Mismatches**: Flags discrepancies (e.g. Care Team inactive member filtering) with `file:line` citations on both sides.
+- **Dual Formats**: Emits Pydantic-validated JSON and clean Markdown parity tables.
+
+
 ## The nine axes
 
 Five of them are the conventional set that most audit briefs ask for. Four were added because they
