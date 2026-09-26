@@ -12,14 +12,12 @@ Acceptance criteria:
   - MRN is identifier of type v2-0203|PT
 """
 
-from pathlib import Path
 
 import pytest
+from conftest import OPENEMR_CLEAN_DIR
 
 from auditor.ui_path.analyzer import OpenEMRScreenAnalyzer
 from auditor.ui_path.models import ItemKind
-
-OPENEMR_CLEAN_DIR = Path("/Users/locriani/Developer/Gauntlet/Projects/agentic-openemr/openemr-base-clean")
 
 
 @pytest.fixture

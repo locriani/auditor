@@ -356,7 +356,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "Care Team storage reverts to patient_data",
         "ui_path/analyzer.py",
         [('table="care_teams"', 'table="patient_data"', 1)],
-        "",
+        "OPENEMR_ROOT",
         "",
     ),
     (
@@ -370,7 +370,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
                 1,
             )
         ],
-        "",
+        "OPENEMR_ROOT",
         "",
     ),
     (
@@ -384,7 +384,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
                 1,
             )
         ],
-        "",
+        "OPENEMR_ROOT",
         "",
     ),
     (
@@ -392,7 +392,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "MRN drops identifier type v2-0203|PT",
         "ui_path/analyzer.py",
         [("v2-0203|PT", "generic_mrn", 1)],
-        "",
+        "OPENEMR_ROOT",
         "",
     ),
     (
@@ -400,7 +400,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "observed flag elevation disabled",
         "ui_path/analyzer.py",
         [("confidence = ConfidenceLevel.OBSERVED if self.observed else", "confidence =", 5)],
-        "",
+        "OPENEMR_ROOT",
         "",
     ),
     (
@@ -863,9 +863,15 @@ def cmd_run(jobs: int = 6, filter_ids: list[str] | None = None) -> int:
         print(f"  no such mutant: {' '.join(unknown)}")
         return 2
     mutants_to_run = [m for m in M if not filter_ids or m[0] in filter_ids]
+    # a mutant whose killing tests skip without an env var would read as SURVIVED
+    results: list[tuple[str, str, str]] = [
+        (m[0], "skipped", f"{m[1]} ({m[4]} unset)")
+        for m in mutants_to_run
+        if m[4] and not os.environ.get(m[4])
+    ]
+    mutants_to_run = [m for m in mutants_to_run if not m[4] or os.environ.get(m[4])]
     print(f"running {len(mutants_to_run)} mutants, {jobs} at a time\n")
 
-    results: list[tuple[str, str, str]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
         futures = {
             pool.submit(run_one_mutant, m[0], m[1], m[2], m[3]): m[0] for m in mutants_to_run
@@ -880,12 +886,13 @@ def cmd_run(jobs: int = 6, filter_ids: list[str] | None = None) -> int:
     killed = sum(1 for _, res, _ in results if res == "killed")
     survived = sum(1 for _, res, _ in results if res == "SURVIVED")
     errors = sum(1 for _, res, _ in results if res == "ERROR")
+    skipped = sum(1 for _, res, _ in results if res == "skipped")
 
     print(f"{'mutant':<10} {'result':<12} description")
     for m_id, res, desc in results:
         print(f"{m_id:<10} {res:<12} {desc}")
 
-    print(f"\nkilled {killed} · survived {survived} · errors {errors}")
+    print(f"\nkilled {killed} · survived {survived} · errors {errors} · skipped {skipped}")
     if survived > 0 or errors > 0:
         return 1
     return 0

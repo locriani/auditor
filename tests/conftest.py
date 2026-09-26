@@ -12,6 +12,9 @@ from typer.testing import CliRunner
 
 from auditor.cli import app
 
+# The ui_path tests read a real OpenEMR checkout, and skip unless OPENEMR_ROOT names one.
+OPENEMR_CLEAN_DIR = Path(os.environ.get("OPENEMR_ROOT") or "/OPENEMR_ROOT-is-unset")
+
 
 @pytest.fixture
 def cli_runner() -> CliRunner:
