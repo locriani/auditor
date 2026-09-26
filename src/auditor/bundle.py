@@ -173,9 +173,11 @@ class BundleManager:
     ) -> ProbeRecord:
         """Process probe output, write files into out/, classify status, and append to manifest."""
         ok_codes = [0] if ok_exits is None else ok_exits
-        out_file = self.out_dir / f"{name}.txt"
-        full_file = self.out_dir / f"{name}.full.txt"
-        err_file = self.out_dir / f"{name}.err"
+        # a nested project's probe is named name@rel/dir; its files stay flat in out/
+        stem = name.replace("/", "__")
+        out_file = self.out_dir / f"{stem}.txt"
+        full_file = self.out_dir / f"{stem}.full.txt"
+        err_file = self.out_dir / f"{stem}.err"
 
         # Handle stderr
         has_err: Literal["yes", "no"] = "yes" if output.stderr else "no"
@@ -225,11 +227,11 @@ class BundleManager:
                 ]
                 said = non_empty[0] if non_empty else ""
             said = re.sub(r"[\t\n]", " ", said)[:120]
-            note = f"exited {rc} and printed no report ({said}) — out/{name}.txt holds its error, not results"
+            note = f"exited {rc} and printed no report ({said}) — out/{stem}.txt holds its error, not results"
         elif expected:
             if out_bytes == 0 and has_err == "yes":
                 status = ProbeStatus.EMPTY
-                note = f"produced no output, but wrote stderr — read out/{name}.err before concluding none"
+                note = f"produced no output, but wrote stderr — read out/{stem}.err before concluding none"
                 if empty_note:
                     note += f". {empty_note}"
             elif out_bytes == 0:
@@ -251,10 +253,10 @@ class BundleManager:
 
         if truncated:
             note = (
-                f"TRUNCATED: {cap} of {total_lines} lines shown, all in out/{name}.full.txt. {note}"
+                f"TRUNCATED: {cap} of {total_lines} lines shown, all in out/{stem}.full.txt. {note}"
             )
         if has_err == "yes" and status != ProbeStatus.EMPTY:
-            note = f"{note} [stderr present: out/{name}.err]"
+            note = f"{note} [stderr present: out/{stem}.err]"
 
         record = ProbeRecord(
             probe=name,
@@ -264,7 +266,7 @@ class BundleManager:
             bytes=out_bytes,
             lines=out_lines,
             stderr=has_err,
-            file=f"out/{name}.txt",
+            file=f"out/{stem}.txt",
             note=note,
         )
         self.records.append(record)

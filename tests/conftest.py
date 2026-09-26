@@ -59,7 +59,8 @@ class ManifestHelper:
         return self.row(probe_name)["note"]
 
     def out_content(self, probe_name: str) -> str:
-        p = self.bundle_dir / "out" / f"{probe_name}.txt"
+        stem = probe_name.replace("/", "__")
+        p = self.bundle_dir / "out" / f"{stem}.txt"
         return p.read_text(encoding="utf-8") if p.is_file() else ""
 
 
