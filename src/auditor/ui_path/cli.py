@@ -70,20 +70,15 @@ def main(
     elif "OPENEMR_ROOT" in os.environ:
         root = Path(os.environ["OPENEMR_ROOT"]).resolve()
     else:
-        # Check standard location or deduce from screen path
-        candidate = Path("/Users/locriani/Developer/Gauntlet/Projects/agentic-openemr/openemr-base-clean")
-        if candidate.exists():
-            root = candidate
-        else:
-            p = Path(screen).resolve()
-            if p.is_file():
-                # Walk up to find root
-                for parent in p.parents:
-                    if (parent / "interface").exists() or (parent / "composer.json").exists():
-                        root = parent
-                        break
-            if not root:
-                root = Path.cwd().resolve()
+        # Deduce from the screen path, else the working directory
+        p = Path(screen).resolve()
+        if p.is_file():
+            for parent in p.parents:
+                if (parent / "interface").exists() or (parent / "composer.json").exists():
+                    root = parent
+                    break
+        if not root:
+            root = Path.cwd().resolve()
 
     if not root.exists() or not root.is_dir():
         sys.stderr.write(f"Target directory not found: {root}\n")

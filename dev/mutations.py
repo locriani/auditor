@@ -12,6 +12,7 @@ Numbering:
   n01–n03 are the security gate mutations
   r01–r11 are Rust target mutations
   s01–s13 are Swift target mutations
+  d01–d17 are nested-manifest and scanner report-check mutations
 """
 
 from __future__ import annotations
@@ -355,46 +356,58 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "Care Team storage reverts to patient_data",
         "ui_path/analyzer.py",
         [('table="care_teams"', 'table="patient_data"', 1)],
-        "",
+        "OPENEMR_ROOT",
         "",
     ),
     (
         "u02",
         "Care Team mismatch file:line citation stripped to bare filename",
         "ui_path/analyzer.py",
-        [('ui_evidence="src/Services/CareTeamService.php:565"', 'ui_evidence="CareTeamService.php"', 1)],
-        "",
+        [
+            (
+                'ui_evidence="src/Services/CareTeamService.php:565"',
+                'ui_evidence="CareTeamService.php"',
+                1,
+            )
+        ],
+        "OPENEMR_ROOT",
         "",
     ),
     (
         "u03",
         "AJAX fragment Immunizations table corrupted",
         "ui_path/analyzer.py",
-        [('table="immunizations",\n                    columns=["id", "immunization_id"', 'table="lists",\n                    columns=["id", "immunization_id"', 1)],
-        "",
+        [
+            (
+                'table="immunizations",\n                    columns=["id", "immunization_id"',
+                'table="lists",\n                    columns=["id", "immunization_id"',
+                1,
+            )
+        ],
+        "OPENEMR_ROOT",
         "",
     ),
     (
         "u04",
         "MRN drops identifier type v2-0203|PT",
         "ui_path/analyzer.py",
-        [('v2-0203|PT', 'generic_mrn', 1)],
-        "",
+        [("v2-0203|PT", "generic_mrn", 1)],
+        "OPENEMR_ROOT",
         "",
     ),
     (
         "u05",
         "observed flag elevation disabled",
         "ui_path/analyzer.py",
-        [('confidence = ConfidenceLevel.OBSERVED if self.observed else', 'confidence =', 5)],
-        "",
+        [("confidence = ConfidenceLevel.OBSERVED if self.observed else", "confidence =", 5)],
+        "OPENEMR_ROOT",
         "",
     ),
     (
         "r01",
         "cargo-audit accepts an error as a report",
         "probes/dependencies.py",
-        [("                valid_pat=valid_pat,\n", "", 1)],
+        [(r"""valid_pat = r'"vulnerabilities"\s*:'""", "valid_pat = None", 1)],
         "",
         "",
     ),
@@ -402,7 +415,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "r07",
         "cargo-audit runs without a Cargo.lock",
         "probes/dependencies.py",
-        [('elif not (target / "Cargo.lock").is_file():', "elif False:", 1)],
+        [('if not (d / "Cargo.lock").is_file():', "if False:", 1)],
         "",
         "",
     ),
@@ -426,7 +439,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "r10",
         "cargo metadata runs without a Cargo.lock",
         "probes/compliance.py",
-        [('elif not (target / "Cargo.lock").is_file():', "elif False:", 1)],
+        [('elif not (d / "Cargo.lock").is_file():', "elif False:", 1)],
         "",
         "",
     ),
@@ -528,7 +541,7 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "s06",
         "Package.swift without pins reads as nothing to scan",
         "probes/dependencies.py",
-        [('if probe == "swift-audit" and (target / "Package.swift").is_file():', "if False:", 1)],
+        [('if name == "swift-audit" and (d / "Package.swift").is_file():', "if False:", 1)],
         "",
         "",
     ),
@@ -550,18 +563,18 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "s12",
         "trivy report without Results reads ok",
         "probes/dependencies.py",
-        [("out, valid_pat=valid_pat)", "out)", 1)],
+        [(r"""out, valid_pat=r'"Results"\s*:')""", "out)", 1)],
         "",
         "",
     ),
     (
         "s13",
-        "trivy runs without --run-toolchains",
+        "dependency scanners run without --run-toolchains",
         "probes/dependencies.py",
         [
             (
-                "            bundle.record_gated(probe, ProbeAxis.SUPPLY_CHAIN.value)\n",
-                "            pass\n",
+                "    if not run_toolchains:\n        bundle.record_gated(probe, AXIS)\n    elif not_run:",
+                "    if not_run:",
                 1,
             )
         ],
@@ -597,6 +610,172 @@ M: list[tuple[str, str, str, list[tuple[str, str, int]], str, str]] = [
         "try? not counted",
         "probes/standards.py",
         [('re.compile(r"\\btry\\?")', 're.compile(r"\\btry\\?NEVER")', 1)],
+        "",
+        "",
+    ),
+    (
+        "d01",
+        "a nested project with its own lock is dropped as a workspace member",
+        "probes/base.py",
+        [("if not (index[d] & locks) and any(", "if any(", 1)],
+        "",
+        "",
+    ),
+    (
+        "d02",
+        "workspace members without a lock become projects of their own",
+        "probes/base.py",
+        [
+            (
+                "any(p in d.parents for p in projects):\n            continue",
+                "any(p in d.parents for p in projects):\n            pass",
+                1,
+            )
+        ],
+        "",
+        "",
+    ),
+    (
+        "d03",
+        "manifests below the target root are not indexed",
+        "probes/base.py",
+        [
+            (
+                "if rel_path.name in names:",
+                'if rel_path.name in names and rel_path.parent == Path("."):',
+                1,
+            )
+        ],
+        "",
+        "",
+    ),
+    (
+        "d04",
+        "nested probe names written into subdirectories of out/",
+        "bundle.py",
+        [('stem = name.replace("/", "__")', "stem = name", 1)],
+        "",
+        "",
+    ),
+    (
+        "d05",
+        "nested npm project audited from the target root",
+        "probes/dependencies.py",
+        [
+            (
+                "        out = run_command(cmd, cwd=d, timeout=timeout)\n        valid_pat = r'\"(auditReportVersion",
+                "        out = run_command(cmd, cwd=d.parent, timeout=timeout)\n        valid_pat = r'\"(auditReportVersion",
+                1,
+            )
+        ],
+        "",
+        "",
+    ),
+    (
+        "d06",
+        "composer audits installed packages instead of the lock",
+        "probes/dependencies.py",
+        [('            "--locked",\n', "", 1)],
+        "",
+        "",
+    ),
+    (
+        "d07",
+        "composer audits the target dir, reading its config",
+        "probes/dependencies.py",
+        [
+            (
+                "out = run_command(cmd, cwd=work, timeout=timeout)",
+                "out = run_command(cmd, cwd=d, timeout=timeout)",
+                1,
+            )
+        ],
+        "",
+        "",
+    ),
+    (
+        "d08",
+        "composer.json config block (advisory ignores) kept in the audited copy",
+        "probes/dependencies.py",
+        [('data.pop("config", None)', "pass", 1)],
+        "",
+        "",
+    ),
+    (
+        "d09",
+        "composer failure without a report reads as a result",
+        "probes/dependencies.py",
+        [("ok_exits=[0, 1, 2, 3], valid_pat=r'\"advisories\"\\s*:')", "ok_exits=[0, 1, 2, 3])", 1)],
+        "",
+        "",
+    ),
+    (
+        "d10",
+        "composer runs without a lock",
+        "probes/dependencies.py",
+        [('if not (d / "composer.lock").is_file():', "if False:", 1)],
+        "",
+        "",
+    ),
+    (
+        "d11",
+        "govulncheck report without SBOM reads as a scan",
+        "probes/dependencies.py",
+        [("out, valid_pat=r'\"SBOM\"\\s*:')", "out)", 1)],
+        "",
+        "",
+    ),
+    (
+        "d12",
+        "govulncheck runs in text mode",
+        "probes/dependencies.py",
+        [('"govulncheck", "-format", "json", "./..."', '"govulncheck", "./..."', 1)],
+        "",
+        "",
+    ),
+    (
+        "d13",
+        "bundler-audit reads the target's .bundler-audit.yml",
+        "probes/dependencies.py",
+        [('"--format", "json", "--config", str(config)]', '"--format", "json"]', 1)],
+        "",
+        "",
+    ),
+    (
+        "d14",
+        "garbage Gemfile.lock audited and reported clean",
+        "probes/dependencies.py",
+        [('elif "specs:" not in _read(lock):', "elif False:", 1)],
+        "",
+        "",
+    ),
+    (
+        "d15",
+        "bundler-audit failure without a report reads as a result",
+        "probes/dependencies.py",
+        [("ok_exits=[0, 1], valid_pat=r'\"results\"\\s*:')", "ok_exits=[0, 1])", 1)],
+        "",
+        "",
+    ),
+    (
+        "d16",
+        "nested Xcode Package.resolved is not a Swift project",
+        "probes/dependencies.py",
+        [
+            (
+                '    {"Package.swift", "Package.resolved", "Podfile.lock"},\n',
+                '    {"Package.swift", "Podfile.lock"},\n',
+                1,
+            )
+        ],
+        "",
+        "",
+    ),
+    (
+        "d17",
+        "nested npm license rows all named for the root",
+        "probes/compliance.py",
+        [('project_probe("dep-licenses", proj)', '"dep-licenses"', 1)],
         "",
         "",
     ),
@@ -679,10 +858,20 @@ def cmd_run(jobs: int = 6, filter_ids: list[str] | None = None) -> int:
         return 1
     print(f"  {ctrl.stdout.strip().splitlines()[-1]}")
 
+    unknown = sorted(set(filter_ids or []) - {m[0] for m in M})
+    if unknown:
+        print(f"  no such mutant: {' '.join(unknown)}")
+        return 2
     mutants_to_run = [m for m in M if not filter_ids or m[0] in filter_ids]
+    # a mutant whose killing tests skip without an env var would read as SURVIVED
+    results: list[tuple[str, str, str]] = [
+        (m[0], "skipped", f"{m[1]} ({m[4]} unset)")
+        for m in mutants_to_run
+        if m[4] and not os.environ.get(m[4])
+    ]
+    mutants_to_run = [m for m in mutants_to_run if not m[4] or os.environ.get(m[4])]
     print(f"running {len(mutants_to_run)} mutants, {jobs} at a time\n")
 
-    results: list[tuple[str, str, str]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
         futures = {
             pool.submit(run_one_mutant, m[0], m[1], m[2], m[3]): m[0] for m in mutants_to_run
@@ -697,12 +886,13 @@ def cmd_run(jobs: int = 6, filter_ids: list[str] | None = None) -> int:
     killed = sum(1 for _, res, _ in results if res == "killed")
     survived = sum(1 for _, res, _ in results if res == "SURVIVED")
     errors = sum(1 for _, res, _ in results if res == "ERROR")
+    skipped = sum(1 for _, res, _ in results if res == "skipped")
 
     print(f"{'mutant':<10} {'result':<12} description")
     for m_id, res, desc in results:
         print(f"{m_id:<10} {res:<12} {desc}")
 
-    print(f"\nkilled {killed} · survived {survived} · errors {errors}")
+    print(f"\nkilled {killed} · survived {survived} · errors {errors} · skipped {skipped}")
     if survived > 0 or errors > 0:
         return 1
     return 0

@@ -134,3 +134,37 @@ def run_command(
             stderr=str(e),
             timed_out=False,
         )
+
+
+def manifest_index(target_dir: Path, names: set[str]) -> dict[Path, set[str]]:
+    """Map each directory (relative to the target) to which of `names` it holds, at any depth."""
+    index: dict[Path, set[str]] = {}
+    for rel_path, _ in walk_target_files(target_dir, exclude_patterns=[]):
+        if rel_path.name in names:
+            index.setdefault(rel_path.parent, set()).add(rel_path.name)
+    return index
+
+
+def find_projects(index: dict[Path, set[str]], manifests: set[str], locks: set[str]) -> list[Path]:
+    """Directories holding one of `manifests`, shallowest first.
+
+    A directory with no lock of its own beneath one already found is a workspace member
+    whose dependencies the ancestor's lock pins, so it is not a project of its own.
+    """
+    # ponytail: nearest-lock heuristic; a nested project that relies on a lock two levels up
+    # of a *different* workspace would be dropped
+    candidates = sorted(
+        (d for d, held in index.items() if held & manifests),
+        key=lambda d: (len(d.parts), str(d)),
+    )
+    projects: list[Path] = []
+    for d in candidates:
+        if not (index[d] & locks) and any(p in d.parents for p in projects):
+            continue
+        projects.append(d)
+    return projects
+
+
+def project_probe(name: str, project: Path) -> str:
+    """`name` for the target root, `name@rel/dir` for a nested project."""
+    return name if project == Path(".") else f"{name}@{project}"

@@ -1,13 +1,10 @@
 """Tests for the observed confidence level in UI data-path audit."""
 
-from pathlib import Path
-
 import pytest
+from conftest import OPENEMR_CLEAN_DIR
 
 from auditor.ui_path.analyzer import OpenEMRScreenAnalyzer
 from auditor.ui_path.models import ConfidenceLevel
-
-OPENEMR_CLEAN_DIR = Path("/Users/locriani/Developer/Gauntlet/Projects/agentic-openemr/openemr-base-clean")
 
 
 def test_observed_flag_gated_by_default() -> None:

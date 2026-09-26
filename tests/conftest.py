@@ -12,6 +12,9 @@ from typer.testing import CliRunner
 
 from auditor.cli import app
 
+# The ui_path tests read a real OpenEMR checkout, and skip unless OPENEMR_ROOT names one.
+OPENEMR_CLEAN_DIR = Path(os.environ.get("OPENEMR_ROOT") or "/OPENEMR_ROOT-is-unset")
+
 
 @pytest.fixture
 def cli_runner() -> CliRunner:
@@ -59,7 +62,8 @@ class ManifestHelper:
         return self.row(probe_name)["note"]
 
     def out_content(self, probe_name: str) -> str:
-        p = self.bundle_dir / "out" / f"{probe_name}.txt"
+        stem = probe_name.replace("/", "__")
+        p = self.bundle_dir / "out" / f"{stem}.txt"
         return p.read_text(encoding="utf-8") if p.is_file() else ""
 
 
