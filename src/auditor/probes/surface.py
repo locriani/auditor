@@ -10,8 +10,15 @@ from auditor.bundle import BundleManager
 from auditor.models import ProbeAxis, ProbeOutput
 from auditor.probes.base import walk_target_files
 
-ROUTE_TABLE_EXTENSIONS = {".php", ".js", ".ts", ".py", ".rb", ".go"}
-ROUTE_TABLE_REGEX = re.compile(r"(GET|POST|PUT|PATCH|DELETE)\s+/", re.IGNORECASE)
+ROUTE_TABLE_EXTENSIONS = {".php", ".js", ".ts", ".py", ".rb", ".go", ".rs", ".swift"}
+ROUTE_TABLE_REGEX = re.compile(
+    r"(\b(GET|POST|PUT|PATCH|DELETE)\s+/|"
+    # actix-web / rocket attributes, axum .route("/…")
+    r"#\[(get|post|put|patch|delete)\(\s*\"/|\.route\(\s*\"/|"
+    # Vapor
+    r"\b(app|routes|router)\.(get|post|put|patch|delete)\(\s*\")",
+    re.IGNORECASE,
+)
 
 ROUTE_VERB_EXTENSIONS = {".php", ".inc.php", ".js", ".ts"}
 ROUTE_VERB_REGEX = re.compile(

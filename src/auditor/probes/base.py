@@ -24,6 +24,10 @@ PRUNE_DIRS: set[str] = {
     "third_party",
     "bower_components",
     "target",
+    ".build",
+    "Pods",
+    "Carthage",
+    "DerivedData",
     "jquery",
 }
 

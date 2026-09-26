@@ -15,6 +15,8 @@ def test_toolchains_gated_by_default(temp_target: Path, run_probe: RunProbe) -> 
     (temp_target / "go.mod").write_text("module test\n", encoding="utf-8")
     (temp_target / "Cargo.toml").write_text("[package]\nname='test'\n", encoding="utf-8")
     (temp_target / "Gemfile").write_text("source 'https://rubygems.org'\n", encoding="utf-8")
+    (temp_target / "Package.resolved").write_text('{"pins": []}\n', encoding="utf-8")
+    (temp_target / "Podfile.lock").write_text("PODS:\n", encoding="utf-8")
 
     manifest = run_probe(temp_target)
 
@@ -24,6 +26,9 @@ def test_toolchains_gated_by_default(temp_target: Path, run_probe: RunProbe) -> 
         "pip-audit",
         "go-vulncheck",
         "cargo-audit",
+        "cargo-licenses",
+        "swift-audit",
+        "cocoapods-audit",
         "bundler-audit",
         "dep-licenses",
     ]

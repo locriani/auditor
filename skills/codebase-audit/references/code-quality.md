@@ -45,6 +45,7 @@ Run what the project declares. Where it declares nothing and you need a baseline
 | Python | `python -m compileall` | Ruff, flake8 | mypy, pyright | `bandit`, `pip-audit` |
 | Go | `go vet` | `gofmt -l`, golangci-lint | built in | `govulncheck` |
 | Rust | `cargo check` | `cargo fmt --check`, clippy | built in | `cargo audit` |
+| Swift | `swiftc -parse` | SwiftLint, swift-format | built in | `trivy fs` over `Package.resolved` / `Podfile.lock` |
 | Ruby | `ruby -c` | RuboCop | Sorbet, RBS | `bundle audit` |
 | Shell | `bash -n` | shellcheck | — | shellcheck |
 

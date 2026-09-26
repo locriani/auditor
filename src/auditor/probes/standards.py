@@ -5,6 +5,7 @@ from __future__ import annotations
 import collections
 import concurrent.futures
 import fnmatch
+import re
 import subprocess
 from pathlib import Path
 
@@ -26,10 +27,50 @@ LINT_CONFIG_PATTERNS = [
     "setup.cfg",
     "tox.ini",
     "rustfmt.toml",
+    ".rustfmt.toml",
+    "clippy.toml",
+    ".clippy.toml",
+    "deny.toml",
+    ".swiftlint.yml",
+    ".swiftlint.yaml",
+    ".swiftformat",
+    ".swift-format",
     ".golangci.yml",
     ".golangci.yaml",
     ".rubocop.yml",
 ]
+
+# Escape hatches from each language's safety guarantees. Counts point at files to read;
+# a count is not a finding.
+LANG_MARKERS: dict[str, tuple[str, list[tuple[str, re.Pattern[str]]]]] = {
+    "rust-markers": (
+        ".rs",
+        [
+            ("unsafe", re.compile(r"\bunsafe\s*(\{|fn\b|impl\b|trait\b)")),
+            (".unwrap()", re.compile(r"\.unwrap\(\)")),
+            (".expect(", re.compile(r"\.expect\(")),
+            ("panic!", re.compile(r"\bpanic!")),
+            ("todo!/unimplemented!", re.compile(r"\b(todo|unimplemented)!")),
+            ("let _ = (result discarded)", re.compile(r"\blet\s+_\s*=")),
+            (".ok(); (error discarded)", re.compile(r"\.ok\(\)\s*;")),
+            ("#[allow(", re.compile(r"#!?\[allow\(")),
+        ],
+    ),
+    "swift-markers": (
+        ".swift",
+        [
+            ("try!", re.compile(r"\btry!")),
+            ("try? (error discarded)", re.compile(r"\btry\?")),
+            ("as!", re.compile(r"\bas!")),
+            ("fatalError(", re.compile(r"\bfatalError\(")),
+            ("unowned", re.compile(r"\bunowned\b")),
+            ("@unchecked Sendable", re.compile(r"@unchecked\s+Sendable\b")),
+            ("nonisolated(unsafe)", re.compile(r"\bnonisolated\(unsafe\)")),
+            ("Unsafe*Pointer", re.compile(r"\bUnsafe(Mutable)?(Raw)?(Buffer)?Pointer\b")),
+            ("swiftlint:disable", re.compile(r"swiftlint:disable")),
+        ],
+    ),
+}
 
 
 def run_standards_probes(
@@ -38,7 +79,7 @@ def run_standards_probes(
     checker_jobs: int = 4,
     timeout: int = 120,
 ) -> None:
-    """Execute lint-config, lang-census, php-syntax, and shell lint probes."""
+    """Execute lint-config, lang-census, language marker, php-syntax, and shell lint probes."""
     # 1. lint-config (root directory only)
     lint_configs: list[str] = []
     for entry in target.iterdir():
@@ -69,7 +110,29 @@ def run_standards_probes(
         "lang-census", ProbeAxis.CODE_QUALITY.value, ProbeOutput(0, lang_out, ""), cap=20
     )
 
-    # 3. php-syntax
+    # 3. rust-markers / swift-markers
+    for probe, (ext, markers) in LANG_MARKERS.items():
+        files = list(walk_target_files(target, include_extensions={ext}))
+        if not files:
+            bundle.record_skip(probe, ProbeAxis.CODE_QUALITY.value, f"no {ext} files")
+            continue
+        counts: collections.Counter[str] = collections.Counter()
+        for rel_path, full_path in files:
+            if "test" in str(rel_path).lower():
+                continue
+            content = full_path.read_text(encoding="utf-8", errors="replace")
+            for label, pattern in markers:
+                counts[label] += len(pattern.findall(content))
+        marker_lines = [f"{count:>7} {label}" for label, count in counts.most_common() if count]
+        marker_out = "\n".join(marker_lines) + ("\n" if marker_lines else "")
+        bundle.record_probe(
+            probe,
+            ProbeAxis.CODE_QUALITY.value,
+            ProbeOutput(0, marker_out, ""),
+            empty_note="no marker matched outside paths containing 'test'",
+        )
+
+    # 4. php-syntax
     has_composer = (target / "composer.json").is_file()
     if has_composer and has_command("php"):
         php_files = [
@@ -118,7 +181,7 @@ def run_standards_probes(
             "php-syntax", ProbeAxis.CODE_QUALITY.value, "no composer.json, or php not on PATH"
         )
 
-    # 4. shell-lint / shell-syntax-only
+    # 5. shell-lint / shell-syntax-only
     sh_files = [
         str(rel_path) for rel_path, _ in walk_target_files(target) if rel_path.suffix == ".sh"
     ]

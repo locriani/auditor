@@ -10,7 +10,7 @@ from auditor.bundle import BundleManager
 from auditor.models import ProbeAxis, ProbeOutput
 from auditor.probes.base import walk_target_files
 
-CODE_EXTENSIONS = {".php", ".js", ".ts", ".py", ".go"}
+CODE_EXTENSIONS = {".php", ".js", ".ts", ".py", ".go", ".rs", ".swift"}
 HEALTH_REGEX = re.compile(r"(healthz|livez|readyz|/health|/ready|HealthCheck)", re.IGNORECASE)
 
 LOG_FRAMEWORKS = [
@@ -22,6 +22,12 @@ LOG_FRAMEWORKS = [
     "structlog",
     "SystemLogger",
     "EventAuditLogger",
+    "tracing::",
+    "use log::",
+    "env_logger",
+    "OSLog",
+    "os_log",
+    "swift-log",
 ]
 LOG_REGEX = re.compile(r"(" + "|".join(LOG_FRAMEWORKS) + r")", re.IGNORECASE)
 
@@ -31,8 +37,10 @@ TELEMETRY_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-CATCH_EXTENSIONS = {".php", ".js", ".ts"}
-CATCH_REGEX = re.compile(r"catch\s*\(")
+CATCH_EXTENSIONS = {".php", ".js", ".ts", ".swift"}
+# Swift's `catch {` / `catch let e {` and JS's `catch {` take no parenthesis.
+CATCH_REGEX = re.compile(r"\bcatch\b")
+EMPTY_CATCH_REGEX = re.compile(r"\bcatch\b[^{}]*\{\s*\}")
 EMPTY_BLOCK_REGEX = re.compile(r"^\s*\}")
 
 
@@ -91,7 +99,9 @@ def run_observability_probes(bundle: BundleManager, target: Path) -> None:
             try:
                 lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
                 for idx, line in enumerate(lines):
-                    if CATCH_REGEX.search(line):
+                    if EMPTY_CATCH_REGEX.search(line):
+                        swallowed_lines.append(f"./{rel_path}:{idx + 1}:{line}")
+                    elif CATCH_REGEX.search(line) and line.rstrip().endswith("{"):
                         # Check if next line closes the catch block immediately
                         if idx + 1 < len(lines) and EMPTY_BLOCK_REGEX.match(lines[idx + 1]):
                             swallowed_lines.append(f"./{rel_path}:{idx + 2}:{lines[idx + 1]}")
