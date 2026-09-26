@@ -21,7 +21,11 @@ TEST_FILE_PATTERNS = [
     "*_spec.rb",
     "test_*.sh",
     "*_test.sh",
+    "*Tests.swift",
+    "*Test.swift",
 ]
+# Rust tests carry no naming convention: they live under tests/ or inline behind these.
+RUST_TEST_ATTR = re.compile(r"#\[(cfg\(test\)|(\w+::)?test\b)")
 
 CI_CONFIG_PATTERNS = [
     ".github/workflows/*",
@@ -46,7 +50,8 @@ def run_testing_probes(bundle: BundleManager, target: Path) -> None:
     for root, dirs, _ in os.walk(target_resolved, topdown=True, followlinks=False):
         dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
         for d in dirs:
-            if d in TEST_DIR_NAMES:
+            # SwiftPM uses Tests/, Xcode targets end in Tests/UITests
+            if d in TEST_DIR_NAMES or d.endswith("Tests"):
                 full_d = Path(root) / d
                 try:
                     rel_d = full_d.relative_to(target_resolved)
@@ -62,9 +67,14 @@ def run_testing_probes(bundle: BundleManager, target: Path) -> None:
 
     # 2. test-file-count
     test_file_count = 0
-    for rel_path, _ in walk_target_files(target):
+    for rel_path, full_path in walk_target_files(target):
         fname = rel_path.name
         if any(fnmatch.fnmatch(fname, pat) for pat in TEST_FILE_PATTERNS):
+            test_file_count += 1
+        elif rel_path.suffix == ".rs" and (
+            "tests" in rel_path.parts[:-1]
+            or RUST_TEST_ATTR.search(full_path.read_text(encoding="utf-8", errors="replace"))
+        ):
             test_file_count += 1
 
     bundle.record_probe(

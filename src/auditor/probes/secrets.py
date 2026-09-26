@@ -18,7 +18,7 @@ from auditor.probes.base import (
 SECRET_GLOBS = (
     "*.y*ml *.env* *.json *.ini *.conf *.cfg *.toml *.xml *.properties *.tf *.tfvars "
     "*.sh *.php *.ts *.tsx *.js *.jsx *.mjs *.cjs *.vue *.py *.rb *.go *.java *.kt "
-    "*.kts *.scala *.gradle *.cs *.rs *.swift *.c *.cc *.cpp *.h *.hpp *.md Dockerfile* Makefile"
+    "*.kts *.scala *.gradle *.cs *.rs *.swift *.c *.cc *.cpp *.h *.hpp *.xcconfig *.md Dockerfile* Makefile"
 )
 
 # Convert SECRET_GLOBS to list of patterns

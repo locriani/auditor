@@ -118,17 +118,94 @@ def run_dependency_probes(
     cargo_toml = target / "Cargo.toml"
     if cargo_toml.is_file():
         deps_found = True
+        content = cargo_toml.read_text(encoding="utf-8", errors="replace")
+        bundle.record_probe(
+            "cargo-manifest", ProbeAxis.SUPPLY_CHAIN.value, ProbeOutput(0, content, "")
+        )
         if not run_toolchains:
             bundle.record_gated("cargo-audit", ProbeAxis.SUPPLY_CHAIN.value)
+        elif not (target / "Cargo.lock").is_file():
+            # cargo-audit would run `cargo generate-lockfile`: it writes into the target and
+            # audits versions resolved today, not the ones the target ships.
+            bundle.record_skip(
+                "cargo-audit",
+                ProbeAxis.SUPPLY_CHAIN.value,
+                "Cargo.toml present but no Cargo.lock — not run: cargo-audit would generate one "
+                "in the target and audit today's resolution, not the shipped versions",
+            )
         elif has_command("cargo-audit"):
-            cmd = ["cargo-audit", "audit"]
+            cmd = ["cargo-audit", "audit", "--json"]
             out = run_command(cmd, cwd=target, timeout=timeout)
-            bundle.record_probe("cargo-audit", ProbeAxis.SUPPLY_CHAIN.value, out, ok_exits=[0, 1])
+            # exit 1 is both "vulnerabilities found" and "could not load Cargo.lock"
+            valid_pat = r'"vulnerabilities"\s*:'
+            bundle.record_probe(
+                "cargo-audit",
+                ProbeAxis.SUPPLY_CHAIN.value,
+                out,
+                ok_exits=[0, 1],
+                valid_pat=valid_pat,
+            )
         else:
             bundle.record_skip(
                 "cargo-audit",
                 ProbeAxis.SUPPLY_CHAIN.value,
                 "Cargo.toml present but cargo-audit not installed",
+            )
+
+    # Swift: Package.swift is Swift code SwiftPM compiles and runs to resolve, so it is only
+    # read. trivy scans the pins in Package.resolved and Podfile.lock against GHSA.
+    swift_files = {
+        "swiftpm-manifest": "Package.swift",
+        "swiftpm-resolved": "Package.resolved",
+        "cocoapods-lockfile": "Podfile.lock",
+    }
+    for probe, fname in swift_files.items():
+        path = target / fname
+        if path.is_file():
+            deps_found = True
+            content = path.read_text(encoding="utf-8", errors="replace")
+            bundle.record_probe(probe, ProbeAxis.SUPPLY_CHAIN.value, ProbeOutput(0, content, ""))
+
+    swift_scans = {"swift-audit": "Package.resolved", "cocoapods-audit": "Podfile.lock"}
+    for probe, fname in swift_scans.items():
+        path = target / fname
+        if not path.is_file():
+            if probe == "swift-audit" and (target / "Package.swift").is_file():
+                bundle.record_skip(
+                    probe,
+                    ProbeAxis.SUPPLY_CHAIN.value,
+                    "Package.swift present but no Package.resolved — not run: the pins are "
+                    "unknown, and resolving them executes Package.swift",
+                )
+            continue
+        if not run_toolchains:
+            bundle.record_gated(probe, ProbeAxis.SUPPLY_CHAIN.value)
+        elif has_command("trivy"):
+            cmd = [
+                "trivy",
+                "fs",
+                "--scanners",
+                "vuln",
+                "--pkg-types",
+                "library",
+                "--format",
+                "json",
+                "--skip-version-check",
+                "--quiet",
+                str(path.resolve()),
+            ]
+            # trivy reads trivy.yaml and .trivyignore from its cwd; one shipped by the target
+            # can hide every finding, so it runs from the bundle directory.
+            out = run_command(cmd, cwd=bundle.bundle_dir, timeout=timeout)
+            # an unparseable lockfile still exits 0 with a report, but one with no Results
+            valid_pat = r'"Results"\s*:'
+            bundle.record_probe(probe, ProbeAxis.SUPPLY_CHAIN.value, out, valid_pat=valid_pat)
+        else:
+            bundle.record_skip(
+                probe,
+                ProbeAxis.SUPPLY_CHAIN.value,
+                f"{fname} present but trivy not installed — Swift dependencies were NOT "
+                "checked for known vulnerabilities",
             )
 
     # Bundler

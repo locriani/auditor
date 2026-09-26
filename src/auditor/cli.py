@@ -55,7 +55,7 @@ def main(
         bool,
         typer.Option(
             "--run-toolchains",
-            help="Also run dependency scanners (composer, npm, pip-audit, govulncheck, cargo-audit, bundler-audit).",
+            help="Also run dependency scanners (composer, npm, pip-audit, govulncheck, cargo-audit, bundler-audit, trivy, cargo metadata).",
         ),
     ] = False,
     host_containers: Annotated[
